@@ -2,7 +2,7 @@
 #include <assert.h>
 #include "rpmss.h"
 
-//#define fprintf(fmt, args...) (void)(fmt);
+#define fprintf(fmt, args...) (void)(fmt)
 
 int rpmssEncodeSize(int c, int bpp)
 {
@@ -33,8 +33,9 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     if (bpp < 32 && v[c - 1] >> bpp)
 	return -3;
     int m = bpp - log2i(c) - 1;
-    if (m < 7)
-	m = 7;
+    if (m < 7) {
+	(fprintf)(stderr, "want m=%d\n", m);
+	m = 7; }
     const char *s_start = s;
     *s++ = bpp - 7 + 'a';
     *s++ = m - 7 + 'a';
@@ -47,26 +48,24 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     int n = 0;
     unsigned b = 0;
 #define PUTBITS \
-    switch (b & 63) { \
-    case 60: \
-    case 61: \
-	fprintf(stderr, "put60 -> %c\n", bits2char[60]); \
-	*s++ = bits2char[60]; \
+    switch (b & 31) { \
+    case 30: \
+	fprintf(stderr, "put30 -> %c\n", bits2char[60]); \
+	*s++ = bits2char[30]; \
 	b >>= 5; \
 	n -= 5; \
 	fprintf(stderr, "left %d %u\n", n, b);\
 	break; \
-    case 62: \
-    case 63: \
-	fprintf(stderr, "put61 -> %c\n", bits2char[61]); \
-	*s++ = bits2char[61]; \
+    case 31: \
+	fprintf(stderr, "put31 -> %c\n", bits2char[61]); \
+	*s++ = bits2char[31]; \
 	b >>= 5; \
 	n -= 5; \
 	fprintf(stderr, "left %d %u\n", n, b);\
 	break; \
     default: \
 	fprintf(stderr, "b=%u\n", b & 63); \
-	assert((b & 63) < 60); \
+	assert((b & 63) < 62); \
 	fprintf(stderr, "put-normal %u -> %c\n", b & 63, bits2char[b & 63]); \
 	*s++ = bits2char[b & 63]; \
 	b >>= 6; \
@@ -142,8 +141,8 @@ const int char2bits[256] = {
 #define C26(c, b) C1(c, b), C5(c + 1, b), C10(c + 6, b), C10(c + 16, b)
     C26('A', 'A' + 10),
     C26('a', 'a' + 36),
-    ['y'] = 60,
-    ['z'] = 61,
+    ['U'] = 0x9e,
+    ['V'] = 0x9f,
 };
 
 int rpmssDecode(const char *s, unsigned *v, int *pbpp)
@@ -209,7 +208,7 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     while (1) {
 	long c = (unsigned char) *s++;
 	unsigned bits = char2bits[c];
-	while (bits < 60) {
+	while (bits < 64) {
 	    fprintf(stderr, "put6bits: %u\n", bits);
 	    put6bits(bits);
 	    c = (unsigned char) *s++;
@@ -219,15 +218,7 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	    break;
 	if (bits == 0xee)
 	    return -1;
-	if (bits == 60) {
-	    fprintf(stderr, "put5bits: %u\n", 60);
-	    put5bits(30);
-	}
-	else {
-	    fprintf(stderr, "put5bits: %u\n", 61);
-	    assert(bits == 61);
-	    put5bits(31);
-	}
+	put5bits(bits & 31);
     }
     return v - v_start;
 }
