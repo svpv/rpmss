@@ -2,7 +2,7 @@
 #include <assert.h>
 #include "rpmss.h"
 
-#define fprintf(fmt, args...) (void)(fmt)
+#define fprintf(fp, args...) (void)(fp)
 
 int rpmssEncodeSize(int c, int bpp)
 {
@@ -26,85 +26,105 @@ const char bits2char[] = "0123456789"
 
 int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
 {
+    // no empty sets
     if (c < 1)
 	return -1;
+    // validate bpp
     if (bpp < 10 || bpp > 32)
 	return -2;
-    if (bpp < 32 && v[c - 1] >> bpp)
-	return -3;
+    // prepare golomb parameter
     int m = bpp - log2i(c) - 1;
     if (m < 7)
 	m = 7;
+    // put control chars
     const char *s_start = s;
     *s++ = bpp - 7 + 'a';
     *s++ = m - 7 + 'a';
-    const unsigned mask = (1 << m) - 1;
-    const unsigned *v_end = v + c;
+    // delta encoding
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
+    unsigned vmax = ~0u;
+    if (bpp < 32)
+	vmax = (1 << bpp) - 1;
+    // golomb encoding
     int q;
     unsigned r;
+    const unsigned rmask = (1 << m) - 1;
+    // pending bits
     int n = 0;
     unsigned b = 0;
-#define PUTBITS \
-    switch (b & 31) { \
-    case 30: \
-	fprintf(stderr, "put30 -> %c\n", bits2char[60]); \
-	*s++ = bits2char[30]; \
-	b >>= 5; \
-	n -= 5; \
-	fprintf(stderr, "left %d %u\n", n, b);\
-	break; \
-    case 31: \
-	fprintf(stderr, "put31 -> %c\n", bits2char[61]); \
-	*s++ = bits2char[31]; \
-	b >>= 5; \
-	n -= 5; \
-	fprintf(stderr, "left %d %u\n", n, b);\
-	break; \
-    default: \
-	fprintf(stderr, "b=%u\n", b & 63); \
-	assert((b & 63) < 62); \
-	fprintf(stderr, "put-normal %u -> %c\n", b & 63, bits2char[b & 63]); \
-	*s++ = bits2char[b & 63]; \
-	b >>= 6; \
-	n -= 6; \
-	fprintf(stderr, "left %d %u\n", n, b);\
-	break; \
-    } 
-    //
+    // handle values
+    const unsigned *v_end = v + c;
     do {
-	assert(n < 6);
-	// dv
+	// make dv
+	v0++;
 	v1 = *v++;
-	if (v1 < v0 + 1)
+	if (v1 > vmax)
 	    return -4;
-	dv = v1 - (v0 + 1);
+	if (v1 < v0)
+	    return -5;
+	dv = v1 - v0;
 	v0 = v1;
-	// q
+	// put q
 	q = dv >> m;
-	r = dv & mask;
-	fprintf(stderr, "q=%d r=%u\n", q, r);
-	fprintf(stderr, "v1=%u dv=%u\n", v1, dv);
 	n += q;
-	while (n >= 6)
-	    PUTBITS;
+	if (n >= 6) {
+	    // only regular case is possible
+	    *s++ = bits2char[b];
+	    n -= 6;
+	    b = 0;
+	    // only zeroes left
+	    while (n >= 6) {
+		*s++ = '0';
+		n -= 6;
+	    }
+	}
+	// impossible to make irregular 6 bits
 	b |= (1 << n);
 	n++;
-	if (n >= 6)
-	    PUTBITS;
-	// r
-	r = dv & mask;
+	// put r
+	r = dv & rmask;
 	b |= (r << n);
 	n += m;
-	assert(n <= 32);
-	while (n >= 6)
-	    PUTBITS;
+	do {
+	    switch (b & 31) {
+	    case 30:
+		*s++ = 'U';
+		n -= 5;
+		break;
+	    case 31:
+		*s++ = 'V';
+		n -= 5;
+		break;
+	    default:
+		*s++ = bits2char[b & 63];
+		n -= 6;
+		break;
+	    }
+	    // first run consumes non-r part completely
+	    b = r >> (m - n);
+	}
+	while (n >= 6);
+	// flush pending irregular case
+	if (n == 5) {
+	    switch (b & 31) {
+	    case 30:
+		*s++ = 'U';
+		n = 0;
+		b = 0;
+		break;
+	    case 31:
+		*s++ = 'V';
+		n = 0;
+		b = 0;
+		break;
+	    }
+	}
     }
     while (v < v_end);
-    assert(n < 6);
+    // only regular case is possible
     if (n)
-	PUTBITS;
+	*s++ = bits2char[b];
     *s = '\0';
     return s - s_start;
 }
@@ -140,8 +160,8 @@ const int char2bits[256] = {
 #define C26(c, b) C1(c, b), C5(c + 1, b), C10(c + 6, b), C10(c + 16, b)
     C26('A', 'A' + 10),
     C26('a', 'a' + 36),
-    ['U'] = 0x9e,
-    ['V'] = 0x9f,
+    ['U'] = 62,
+    ['V'] = 63,
 };
 
 int rpmssDecode(const char *s, unsigned *v, int *pbpp)
@@ -207,7 +227,7 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     while (1) {
 	long c = (unsigned char) *s++;
 	unsigned bits = char2bits[c];
-	while (bits < 64) {
+	while (bits < 62) {
 	    fprintf(stderr, "put6bits: %u\n", bits);
 	    put6bits(bits);
 	    c = (unsigned char) *s++;
