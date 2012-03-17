@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <assert.h>
 #include "rpmss.h"
 
 int rpmssEncodeSize(int c, int bpp)
@@ -159,6 +161,102 @@ const unsigned char2bits[256] = {
     ['V'] = 63,
 };
 
+// Word types (when two bytes from base62 string cast to unsigned short).
+enum {
+    W_12 = 0x0000,
+    W_11 = 0x1000,
+    W_10 = 0x2000,
+    W_06 = 0x3000,
+    W_05 = 0x4000,
+    W_00 = 0x5000,
+    W_EE = 0xeeee,
+};
+
+// Combine two characters into array index (with respect to endianness).
+#include <sys/types.h>
+#if BYTE_ORDER && BYTE_ORDER == LITTLE_ENDIAN
+#define CCI(c1, c2) ((c1) | ((c2) << 8))
+#elif BYTE_ORDER && BYTE_ORDER == BIG_ENDIAN
+#define CCI(c1, c2) ((c2) | ((c1) << 8))
+#else
+#error "unknown byte order"
+#endif
+
+// Maps base62 word into numeric value (decoded bits) ORed with word type.
+static
+const unsigned short word2bits[65536] = {
+    // defaults to error
+    [0 ... 65535] = W_EE,
+    // macros to initialize regions
+#define R1(w, s, c1, c2, b1, b2) [CCI(c1, c2)] = w | (c1 - b1) | ((c2 - b2) << s)
+#define R1x2(w, s, c1, c2, b1, b2) R1(w, s, c1, c2, b1, b2), R1(w, s, c1, c2 + 1, b1, b2)
+#define R1x3(w, s, c1, c2, b1, b2) R1(w, s, c1, c2, b1, b2), R1x2(w, s, c1, c2 + 1, b1, b2)
+#define R1x5(w, s, c1, c2, b1, b2) R1x2(w, s, c1, c2, b1, b2), R1x3(w, s, c1, c2 + 2, b1, b2)
+#define R1x6(w, s, c1, c2, b1, b2) R1(w, s, c1, c2, b1, b2), R1x5(w, s, c1, c2 + 1, b1, b2)
+#define R1x10(w, s, c1, c2, b1, b2) R1x5(w, s, c1, c2, b1, b2), R1x5(w, s, c1, c2 + 5, b1, b2)
+#define R1x20(w, s, c1, c2, b1, b2) R1x10(w, s, c1, c2, b1, b2), R1x10(w, s, c1, c2 + 10, b1, b2)
+#define R1x26(w, s, c1, c2, b1, b2) R1x20(w, s, c1, c2, b1, b2), R1x6(w, s, c1, c2 + 20, b1, b2)
+#define R2x26(w, s, c1, c2, b1, b2) R1x26(w, s, c1, c2, b1, b2), R1x26(w, s, c1 + 1, c2, b1, b2)
+#define R3x26(w, s, c1, c2, b1, b2) R1x26(w, s, c1, c2, b1, b2), R2x26(w, s, c1 + 1, c2, b1, b2)
+#define R5x26(w, s, c1, c2, b1, b2) R2x26(w, s, c1, c2, b1, b2), R3x26(w, s, c1 + 2, c2, b1, b2)
+#define R6x26(w, s, c1, c2, b1, b2) R1x26(w, s, c1, c2, b1, b2), R5x26(w, s, c1 + 1, c2, b1, b2)
+#define R10x26(w, s, c1, c2, b1, b2) R5x26(w, s, c1, c2, b1, b2), R5x26(w, s, c1 + 5, c2, b1, b2)
+#define R20x26(w, s, c1, c2, b1, b2) R10x26(w, s, c1, c2, b1, b2), R10x26(w, s, c1 + 10, c2, b1, b2)
+#define R26x26(w, s, c1, c2, b1, b2) R20x26(w, s, c1, c2, b1, b2), R6x26(w, s, c1 + 20, c2, b1, b2)
+#define R2x10(w, s, c1, c2, b1, b2) R1x10(w, s, c1, c2, b1, b2), R1x10(w, s, c1 + 1, c2, b1, b2)
+#define R3x10(w, s, c1, c2, b1, b2) R1x10(w, s, c1, c2, b1, b2), R2x10(w, s, c1 + 1, c2, b1, b2)
+#define R5x10(w, s, c1, c2, b1, b2) R2x10(w, s, c1, c2, b1, b2), R3x10(w, s, c1 + 2, c2, b1, b2)
+#define R6x10(w, s, c1, c2, b1, b2) R1x10(w, s, c1, c2, b1, b2), R5x10(w, s, c1 + 1, c2, b1, b2)
+#define R10x10(w, s, c1, c2, b1, b2) R5x10(w, s, c1, c2, b1, b2), R5x10(w, s, c1 + 5, c2, b1, b2)
+#define R20x10(w, s, c1, c2, b1, b2) R10x10(w, s, c1, c2, b1, b2), R10x10(w, s, c1 + 10, c2, b1, b2)
+#define R26x10(w, s, c1, c2, b1, b2) R20x10(w, s, c1, c2, b1, b2), R6x10(w, s, c1 + 20, c2, b1, b2)
+#define R2x1(w, s, c1, c2, b1, b2) R1(w, s, c1, c2, b1, b2), R1(w, s, c1 + 1, c2, b1, b2)
+#define R3x1(w, s, c1, c2, b1, b2) R1(w, s, c1, c2, b1, b2), R2x1(w, s, c1 + 1, c2, b1, b2)
+#define R5x1(w, s, c1, c2, b1, b2) R2x1(w, s, c1, c2, b1, b2), R3x1(w, s, c1 + 2, c2, b1, b2)
+#define R6x1(w, s, c1, c2, b1, b2) R1(w, s, c1, c2, b1, b2), R5x1(w, s, c1 + 1, c2, b1, b2)
+#define R10x1(w, s, c1, c2, b1, b2) R5x1(w, s, c1, c2, b1, b2), R5x1(w, s, c1 + 5, c2, b1, b2)
+#define R20x1(w, s, c1, c2, b1, b2) R10x1(w, s, c1, c2, b1, b2), R10x1(w, s, c1 + 10, c2, b1, b2)
+#define R26x1(w, s, c1, c2, b1, b2) R20x1(w, s, c1, c2, b1, b2), R6x1(w, s, c1 + 20, c2, b1, b2)
+#define R10x2(w, s, c1, c2, b1, b2) R10x1(w, s, c1, c2, b1, b2), R10x1(w, s, c1, c2 + 1, b1, b2)
+#define R26x2(w, s, c1, c2, b1, b2) R26x1(w, s, c1, c2, b1, b2), R26x1(w, s, c1, c2 + 1, b1, b2)
+#define R2x2(w, s, c1, c2, b1, b2) R2x1(w, s, c1, c2, b1, b2), R2x1(w, s, c1, c2 + 1, b1, b2)
+#define R1x40(w, s, c1, c2, b1, b2) R1x20(w, s, c1, c2, b1, b2), R1x20(w, s, c1, c2 + 20, b1, b2)
+#define R1x80(w, s, c1, c2, b1, b2) R1x40(w, s, c1, c2, b1, b2), R1x40(w, s, c1, c2 + 40, b1, b2)
+#define R1x160(w, s, c1, c2, b1, b2) R1x80(w, s, c1, c2, b1, b2), R1x80(w, s, c1, c2 + 80, b1, b2)
+#define R1x200(w, s, c1, c2, b1, b2) R1x40(w, s, c1, c2, b1, b2), R1x160(w, s, c1, c2 + 40, b1, b2)
+#define R1x220(w, s, c1, c2, b1, b2) R1x20(w, s, c1, c2, b1, b2), R1x200(w, s, c1, c2 + 20, b1, b2)
+#define R1x230(w, s, c1, c2, b1, b2) R1x10(w, s, c1, c2, b1, b2), R1x220(w, s, c1, c2 + 10, b1, b2)
+#define R1x256(w, s, c1, c2, b1, b2) R1x26(w, s, c1, c2, b1, b2), R1x230(w, s, c1, c2 + 26, b1, b2)
+    // both characters are regular
+    R10x10(W_12, 6, '0', '0', '0', '0'),
+    R10x26(W_12, 6, '0', 'A', '0', 'A' + 10),
+    R10x26(W_12, 6, '0', 'a', '0', 'a' + 36),
+    R26x10(W_12, 6, 'A', '0', 'A' + 10, '0'),
+    R26x10(W_12, 6, 'a', '0', 'a' + 36, '0'),
+    R26x26(W_12, 6, 'A', 'A', 'A' + 10, 'A' + 10),
+    R26x26(W_12, 6, 'A', 'a', 'A' + 10, 'a' + 36),
+    R26x26(W_12, 6, 'a', 'A', 'a' + 36, 'A' + 10),
+    R26x26(W_12, 6, 'a', 'a', 'a' + 36, 'a' + 36),
+    // first character irregular
+    R2x10(W_11, 5, 'U', '0', 'A' + 10, '0'),
+    R2x26(W_11, 5, 'U', 'A', 'A' + 10, 'A' + 10),
+    R2x26(W_11, 5, 'U', 'a', 'A' + 10, 'a' + 36),
+    // second character irregular
+    R10x2(W_11, 6, '0', 'U', '0', 'A' + 10),
+    R26x2(W_11, 6, 'A', 'U', 'A' + 10, 'A' + 10),
+    R26x2(W_11, 6, 'a', 'U', 'a' + 36, 'A' + 10),
+    // both characters irregular
+    R2x2(W_10, 5, 'U', 'U', 'A' + 10, 'A' + 10),
+    // last regular character
+    R10x1(W_06, 6, '0', '\0', '0', '\0'),
+    R26x1(W_06, 6, 'A', '\0', 'A' + 10, '\0'),
+    R26x1(W_06, 6, 'a', '\0', 'a' + 36, '\0'),
+    // last irregular character
+    R2x1(W_05, 5, 'U', '\0', 'A' + 36, '\0'),
+    // end of line
+    R1x256(W_00, 0, '\0', '\0', '\0', '\0'),
+};
+
 int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 {
     int bpp = *s++ + 7 - 'a';
@@ -173,7 +271,7 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	return -4;
     *pbpp = bpp;
     const unsigned *v_start = v;
-    long c;
+    long w;
     int left, vbits;
     // delta
     unsigned v0 = (unsigned) -1;
@@ -188,68 +286,118 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     unsigned b = 0;
     unsigned bx;
   getq:
-    c = (unsigned char) *s++;
-    b = char2bits[c];
-    if (b < 62) {
-	if (b) {
-	    vbits = __builtin_ffs(b);
-	    q += vbits - 1;
-	    r = b >> vbits;
-	    rfill = 6 - vbits;
-	    goto getr;
+    w = *(unsigned short *) s;
+    s += 2;
+    b = word2bits[w];
+    if (b < 0x1000) {
+	n = 12;
+	w = *(unsigned short *) s;
+	bx = word2bits[w];
+	if (bx < 0x1000) {
+	    s += 2;
+	    b |= (bx << 12);
+	    n = 24;
 	}
-	else {
-	    q += 6;
-	    goto getq;
-	}
+	goto putq;
     }
-    switch (b) {
-    case 62:
-	q += 1;
-	r = 7;
-	rfill = 3;
-	goto getr;
-    case 63:
-	r = 15;
-	rfill = 4;
-	goto getr;
-    case 0xff:
-	// end of line
-	if (q > 5)
-	    return -2;
+    switch (b & 0xf000) {
+    case W_11:
+	n = 11;
+	b &= 0x0fff;
+	goto putq;
+    case W_10:
+	n = 10;
+	b &= 0x0fff;
+	goto putq;
+    case W_06:
+	assert(!"final 6q char");
+	return -1;
+    case W_05:
+	assert(!"final 5q char");
+	return -1;
+    case W_00:
+	if (q > 5) {
+	    assert(!"q overrun");
+	    return -1;
+	}
 	return v - v_start;
     default:
-	// unknown character
+	assert(!"bad word");
 	return -1;
     }
   getr:
-    c = (unsigned char) *s++;
-    b = char2bits[c];
-    if (b < 62) {
-	n = 6;
+    w = *(unsigned short *) s;
+    s += 2;
+    b = word2bits[w];
+    if (b < 0x1000) {
+	n = 12;
+	w = *(unsigned short *) s;
+	bx = word2bits[w];
+	if (bx < 0x1000) {
+	    s += 2;
+	    b |= (bx << 12);
+	    n = 24;
+	}
 	goto putr;
     }
-    switch (b) {
-    case 62:
-	n = 5;
-	b = 30;
+    switch (b & 0xf000) {
+    case W_11:
+	n = 11;
+	b &= 0x0fff;
 	goto putr;
-    case 63:
-	n = 5;
-	b = 31;
+    case W_10:
+	n = 10;
+	b &= 0x0fff;
 	goto putr;
-    case 0xff:
-	// end of line
-	return -1;
+    case W_06:
+	n = 6;
+	b &= 0x0fff;
+	// oh-oh
+	r |= (b << rfill);
+	rfill += n;
+	left = rfill - m;
+	if (left < 0)
+	    assert(!"not enugh left");
+	r &= rmask;
+	dv = (q << m) | r;
+	v1 = v0 + dv + 1;
+	*v++ = v1;
+	v0 = v1;
+	q = 0;
+	b >>= n - left;
+	n = left;
+	assert(b == 0);
+	return v - v_start;
+    case W_05:
+	n = 5;
+	b &= 0x0fff;
+	// oh-oh
+	r |= (b << rfill);
+	rfill += n;
+	left = rfill - m;
+	if (left < 0)
+	    assert(!"not enugh left");
+	r &= rmask;
+	dv = (q << m) | r;
+	v1 = v0 + dv + 1;
+	*v++ = v1;
+	v0 = v1;
+	q = 0;
+	b >>= n - left;
+	n = left;
+	assert(b == 0);
+	return v - v_start;
+    case W_00:
+	assert(!"incomlete r");
+	return v - v_start;
     default:
-	// unknown character
+	assert(!"bad word");
 	return -1;
     }
   putr:
-    // 0
     r |= (b << rfill);
     rfill += n;
-    // 1
+  rchk:
     left = rfill - m;
     if (left < 0)
 	goto getr;
@@ -261,7 +409,7 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     q = 0;
     b >>= n - left;
     n = left;
-    // 2
+  putq:
     if (b == 0) {
 	q += n;
 	goto getq;
@@ -272,53 +420,53 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     q += vbits - 1;
     r = b;
     rfill = n;
-    goto getr;
+    // rchk
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    // rchk
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    goto rchk;
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:
-#if 0
-	c = (unsigned char) *s;
-	bx = char2bits[c];
-	if (bx < 62) {
-	    s++;
-	    b |= (bx << 6);
-	    n = 12;
-	    c = (unsigned char) *s;
-	    bx = char2bits[c];
-	    if (bx < 62) {
-		s++;
-		b |= (bx << 12);
-		n = 18;
-		c = (unsigned char) *s;
-		bx = char2bits[c];
-		if (bx < 62) {
-		    s++;
-		    b |= (bx << 18);
-		    n = 24;
-		}
-	    }
-	}
-    // rchk again
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq again:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-#endif
