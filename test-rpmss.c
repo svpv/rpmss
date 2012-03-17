@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <getopt.h>
 #include "rpmss.h"
-
 #include "qsort.h"
 
 static
@@ -15,7 +15,6 @@ void test_set(int c0, unsigned *v0, int bpp0)
     int len = rpmssEncode(c0, v0, bpp0, s);
     assert(len > 0);
     assert(len < strsize);
-    //fprintf(stderr, "set:%s\n", s);
     assert(s[len] == '\0');
     // decode
     int v1size = rpmssDecodeSize(s, len);
@@ -24,7 +23,6 @@ void test_set(int c0, unsigned *v0, int bpp0)
     int bpp1;
     int c1 = rpmssDecode(s, v1, &bpp1);
     // compare
-    //fprintf(stderr, "c0=%d c1=%d\n", c0, c1);
     assert(c0 == c1);
     int i;
     for (i = 0; i < c0; i++)
@@ -45,7 +43,7 @@ int uniqv(int c, unsigned *v)
 {
     int i, j;
     for (i = 0, j = 0; i < c; i++) {
-       while (i + 1 < c && v[i] == v[i+1])
+       while (i + 1 < c && v[i] == v[i + 1])
            i++;
        v[j++] = v[i];
     }
@@ -54,18 +52,8 @@ int uniqv(int c, unsigned *v)
 }
 
 static
-int rand_range(int min, int max)
+int make_random_set(int c, unsigned **pv, int bpp)
 {
-    assert(max >= min);
-    return min + rand() % (max - min + 1);
-}
-
-static
-int make_random_set(unsigned **pv, int *pbpp)
-{
-    int bpp = *pbpp = rand_range(10, 32);
-    int c = rand_range(1, 99999);
-    //fprintf(stderr, "bpp=%d, c=%d\n", bpp, c);
     unsigned *v = *pv = malloc(c * sizeof(unsigned));
     int i;
     unsigned mask = ~0u;
@@ -79,20 +67,57 @@ int make_random_set(unsigned **pv, int *pbpp)
 }
 
 static
-void test_random_set(void)
+void test_random_set(int c0, int bpp)
 {
     unsigned *v;
-    int bpp;
-    int c = make_random_set(&v, &bpp);
+    int c = make_random_set(c0, &v, bpp);
+    assert(c > 0);
+    assert(c <= c0);
     test_set(c, v, bpp);
     free(v);
 }
 
-int main()
+static
+int rand_range(int min, int max)
 {
+    assert(max >= min);
+    return min + rand() % (max - min + 1);
+}
+
+int main(int argc, char **argv)
+{
+    int runs = 9999;
+    int min_bpp = 10;
+    int max_bpp = 32;
+    int min_size = 1;
+    int max_size = 99999;
+    int opt;
+    while ((opt = getopt(argc, argv, "n:b:B:s:S:")) != -1)
+	switch (opt) {
+	case 'n':
+	    runs = atoi(optarg);
+	    break;
+	case 'b':
+	    min_bpp = atoi(optarg);
+	    break;
+	case 'B':
+	    max_bpp = atoi(optarg);
+	    break;
+	case 's':
+	    min_size = atoi(optarg);
+	    break;
+	case 'S':
+	    max_size = atoi(optarg);
+	    break;
+	default:
+	    assert(!"option");
+	}
     int i;
-    for (i = 0; i < 1000; i++)
-	test_random_set();
+    for (i = 0; i < runs; i++) {
+	int bpp = rand_range(min_bpp, max_bpp);
+	int size = rand_range(min_size, max_size);
+	test_random_set(size, bpp);
+    }
     return 0;
 }
 

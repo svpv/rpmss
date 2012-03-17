@@ -33,9 +33,8 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     if (bpp < 32 && v[c - 1] >> bpp)
 	return -3;
     int m = bpp - log2i(c) - 1;
-    if (m < 7) {
-	(fprintf)(stderr, "want m=%d\n", m);
-	m = 7; }
+    if (m < 7)
+	m = 7;
     const char *s_start = s;
     *s++ = bpp - 7 + 'a';
     *s++ = m - 7 + 'a';
