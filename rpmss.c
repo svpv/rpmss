@@ -227,7 +227,56 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     b = char2bits[c];
     if (b < 62) {
 	n = 6;
-#if 1
+	goto putr;
+    }
+    switch (b) {
+    case 62:
+	n = 5;
+	b = 30;
+	goto putr;
+    case 63:
+	n = 5;
+	b = 31;
+	goto putr;
+    case 0xff:
+	// end of line
+	return -1;
+    default:
+	// unknown character
+	return -1;
+    }
+  putr:
+    // 0
+    r |= (b << rfill);
+    rfill += n;
+    // 1
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // 2
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    goto getr;
+}
+
+// ex: set ts=8 sts=4 sw=4 noet:
+#if 0
 	c = (unsigned char) *s;
 	bx = char2bits[c];
 	if (bx < 62) {
@@ -249,57 +298,6 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 		}
 	    }
 	}
-#endif
-#if 1
-    r |= (b << rfill);
-    rfill += n;
-
-    // rchk again
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq again:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    // rchk again
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq again:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
     // rchk again
     left = rfill - m;
     if (left < 0)
@@ -324,125 +322,3 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     r = b;
     rfill = n;
 #endif
-	goto getr;
-    }
-    if (b == 0xff)
-	goto eolr;
-    if (b == 0xee)
-	return -1;
-    n = 5;
-    b &= 31;
-  putr:
-    r |= (b << rfill);
-    rfill += n;
-  rchk:
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-  //putq:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    // rchk again
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq again:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    // rchk again
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq again:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    // rchk again
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq again:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    // and again:
-    goto rchk;
-  putq:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    goto getr;
-  eolr:
-    return -1;
-}
-
-// ex: set ts=8 sts=4 sw=4 noet:
