@@ -1,8 +1,4 @@
-#include <stdio.h>
-#include <assert.h>
 #include "rpmss.h"
-
-#define fprintf(fp, args...) (void)(fp)
 
 int rpmssEncodeSize(int c, int bpp)
 {
@@ -147,9 +143,8 @@ int rpmssDecodeSize(const char *s, int len)
     return bitc / (m + 1);
 }
 
-// This table maps alnum characters to their numeric values.
 static
-const int char2bits[256] = {
+const unsigned char2bits[256] = {
     [0 ... 255] = 0xee,
     [0] = 0xff,
 #define C1(c, b) [c] = c - b
@@ -176,70 +171,278 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	return -3;
     if (*s == '\0')
 	return -4;
-    fprintf(stderr, "bpp=%d m=%d\n", bpp, m);
     *pbpp = bpp;
     const unsigned *v_start = v;
-    enum { ST_VLEN, ST_MBITS } state = ST_VLEN;
-    unsigned r = 0;
-    int rfill = 0;
-    int q = 0;
+    long c;
+    int left, vbits;
+    // delta
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
-    inline
-    void putNbits(unsigned c, int n)
-    {
-       if (state == ST_VLEN)
-           goto vlen;
-       r |= (c << rfill);
-       rfill += n;
-    rcheck: ;
-       int left = rfill - m;
-       if (left < 0)
-           return;
-       r &= (1 << m) - 1;
-       dv = (q << m) | r;
-       v1 = v0 + dv + 1;
-       *v++ = v1;
-       v0 = v1;
-	fprintf(stderr, "q=%d r=%u\n", q, r);
-       fprintf(stderr, "v1=%u dv=%u\n", v1, dv);
-       q = 0;
-       state = ST_VLEN;
-       c >>= n - left;
-       n = left;
-       fprintf(stderr, "left=%d %u\n", left, c);
-    vlen:
-       if (c == 0) {
-           q += n;
-           return;
-       }
-       int vbits = __builtin_ffs(c);
-       n -= vbits;
-       c >>= vbits;
-       q += vbits - 1;
-       r = c;
-       rfill = n;
-       state = ST_MBITS;
-       goto rcheck;
-    }
-    inline void put5bits(unsigned c) { putNbits(c, 5); }
-    inline void put6bits(unsigned c) { putNbits(c, 6); }
-    while (1) {
-	long c = (unsigned char) *s++;
-	unsigned bits = char2bits[c];
-	while (bits < 62) {
-	    fprintf(stderr, "put6bits: %u\n", bits);
-	    put6bits(bits);
-	    c = (unsigned char) *s++;
-	    bits = char2bits[c];
+    // golomb encoding
+    int q = 0;
+    unsigned r = 0;
+    int rfill = 0;
+    const unsigned rmask = (1 << m) - 1;
+    // pending bits
+    int n = 0;
+    unsigned b = 0;
+    unsigned bx;
+  getq:
+    c = (unsigned char) *s++;
+    b = char2bits[c];
+    if (b < 62) {
+	if (b) {
+	    vbits = __builtin_ffs(b);
+	    q += vbits - 1;
+	    r = b >> vbits;
+	    rfill = 6 - vbits;
+	    goto getr;
 	}
-	if (bits == 0xff)
-	    break;
-	if (bits == 0xee)
-	    return -1;
-	put5bits(bits & 31);
+	else {
+	    q += 6;
+	    goto getq;
+	}
     }
-    return v - v_start;
+    switch (b) {
+    case 62:
+	q += 1;
+	r = 7;
+	rfill = 3;
+	goto getr;
+    case 63:
+	r = 15;
+	rfill = 4;
+	goto getr;
+    case 0xff:
+	// end of line
+	if (q > 5)
+	    return -2;
+	return v - v_start;
+    default:
+	// unknown character
+	return -1;
+    }
+  getr:
+    c = (unsigned char) *s++;
+    b = char2bits[c];
+    if (b < 62) {
+	n = 6;
+#if 1
+	c = (unsigned char) *s;
+	bx = char2bits[c];
+	if (bx < 62) {
+	    s++;
+	    b |= (bx << 6);
+	    n = 12;
+	    c = (unsigned char) *s;
+	    bx = char2bits[c];
+	    if (bx < 62) {
+		s++;
+		b |= (bx << 12);
+		n = 18;
+		c = (unsigned char) *s;
+		bx = char2bits[c];
+		if (bx < 62) {
+		    s++;
+		    b |= (bx << 18);
+		    n = 24;
+		}
+	    }
+	}
+#endif
+#if 1
+    r |= (b << rfill);
+    rfill += n;
+
+    // rchk again
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq again:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    // rchk again
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq again:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    // rchk again
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq again:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+#endif
+	goto getr;
+    }
+    if (b == 0xff)
+	goto eolr;
+    if (b == 0xee)
+	return -1;
+    n = 5;
+    b &= 31;
+  putr:
+    r |= (b << rfill);
+    rfill += n;
+  rchk:
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+  //putq:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    // rchk again
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq again:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    // rchk again
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq again:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    // rchk again
+    left = rfill - m;
+    if (left < 0)
+	goto getr;
+    r &= rmask;
+    dv = (q << m) | r;
+    v1 = v0 + dv + 1;
+    *v++ = v1;
+    v0 = v1;
+    q = 0;
+    b >>= n - left;
+    n = left;
+    // putq again:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    // and again:
+    goto rchk;
+  putq:
+    if (b == 0) {
+	q += n;
+	goto getq;
+    }
+    vbits = __builtin_ffs(b);
+    n -= vbits;
+    b >>= vbits;
+    q += vbits - 1;
+    r = b;
+    rfill = n;
+    goto getr;
+  eolr:
+    return -1;
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:

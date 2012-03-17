@@ -22,6 +22,19 @@ void test_set(int c0, unsigned *v0, int bpp0)
     unsigned *v1 = malloc(v1size * sizeof(unsigned));
     int bpp1;
     int c1 = rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
+    rpmssDecode(s, v1, &bpp1);
     // compare
     assert(c0 == c1);
     int i;
