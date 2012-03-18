@@ -1,19 +1,35 @@
 #include <assert.h>
 #include "rpmss.h"
 
-int rpmssEncodeSize(int c, int bpp)
-{
-    int bitc = c * 2 * bpp + 16;
-    return bitc / 5 + 2;
-}
-
-static
+static inline
 int log2i(int n)
 {
     int m = 0;
     while (n >>= 1)
 	m++;
     return m;
+}
+
+static inline
+int estimate_m(int c, int bpp)
+{
+    int m = bpp - log2i(c) - 1;
+    if (m < 7)
+	m = 7;
+    return m;
+}
+
+int rpmssEncodeSize(int c, int bpp)
+{
+    int m = estimate_m(c, bpp);
+    // need at least (m + 1) bits per value
+    int bitc = c * (m + 1);
+    // the second term is much tricker: assuming that remainders are small,
+    // q deltas must have enough room to cover the whole range
+    bitc += (1 << (bpp - m)) - 1;
+    // five bits can make a character, as well as the remaining bits; also
+    // need two leading characeters, and the string must be null-terminated
+    return bitc / 5 + 4;
 }
 
 static
@@ -30,9 +46,7 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     if (bpp < 10 || bpp > 32)
 	return -2;
     // prepare golomb parameter
-    int m = bpp - log2i(c) - 1;
-    if (m < 7)
-	m = 7;
+    int m = estimate_m(c, bpp);
     // put control chars
     const char *s_start = s;
     *s++ = bpp - 7 + 'a';
@@ -363,11 +377,11 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	b &= 0x0fff;
 	goto putr_last;
     case W_00:
-	assert(!"incomlete r");
-	return v - v_start;
+	// cannot complete the value
+	return -15;
     default:
-	assert(!"bad word");
-	return -1;
+	// bad input
+	return -16;
     }
 #define QInit(N) \
     n = N

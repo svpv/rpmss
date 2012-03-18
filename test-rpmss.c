@@ -11,8 +11,9 @@ void test_set(int c0, unsigned *v0, int bpp0)
     // encode
     int strsize = rpmssEncodeSize(c0, bpp0);
     assert(strsize > 0);
+    // check overruns
+    char *sbuf = malloc(strsize + 1024);
     // trigger align
-    char *sbuf = malloc(strsize + 1);
     char *s = sbuf + 1;
     int len = rpmssEncode(c0, v0, bpp0, s);
     assert(len > 0);
@@ -24,6 +25,7 @@ void test_set(int c0, unsigned *v0, int bpp0)
     unsigned *v1 = malloc(v1size * sizeof(unsigned));
     int bpp1;
     int c1 = rpmssDecode(s, v1, &bpp1);
+    assert(c1 > 0);
 #if 0
     rpmssDecode(s, v1, &bpp1);
     rpmssDecode(s, v1, &bpp1);
