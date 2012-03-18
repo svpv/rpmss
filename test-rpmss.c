@@ -11,7 +11,9 @@ void test_set(int c0, unsigned *v0, int bpp0)
     // encode
     int strsize = rpmssEncodeSize(c0, bpp0);
     assert(strsize > 0);
-    char *s = malloc(strsize);
+    // trigger align
+    char *sbuf = malloc(strsize + 1);
+    char *s = sbuf + 1;
     int len = rpmssEncode(c0, v0, bpp0, s);
     assert(len > 0);
     assert(len < strsize);
@@ -42,7 +44,7 @@ void test_set(int c0, unsigned *v0, int bpp0)
     int i;
     for (i = 0; i < c0; i++)
 	assert(v0[i] == v1[i]);
-    free(s);
+    free(sbuf);
     free(v1);
 }
 

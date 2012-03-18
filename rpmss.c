@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <assert.h>
 #include "rpmss.h"
 
@@ -141,25 +140,11 @@ int rpmssDecodeSize(const char *s, int len)
 	return -4;
     if (len < 4)
 	return -1;
+    // each character will fill at most 6 bits
     int bitc = (len - 2) * 6;
+    // each (m + 1) bits can make a value
     return bitc / (m + 1);
 }
-
-static
-const unsigned char2bits[256] = {
-    [0 ... 255] = 0xee,
-    [0] = 0xff,
-#define C1(c, b) [c] = c - b
-#define C2(c, b) C1(c, b), C1(c + 1, b)
-#define C5(c, b) C1(c, b), C2(c + 1, b), C2(c + 3, b)
-#define C10(c, b) C5(c, b), C5(c + 5, b)
-    C10('0', '0'),
-#define C26(c, b) C1(c, b), C5(c + 1, b), C10(c + 6, b), C10(c + 16, b)
-    C26('A', 'A' + 10),
-    C26('a', 'a' + 36),
-    ['U'] = 62,
-    ['V'] = 63,
-};
 
 // Word types (when two bytes from base62 string cast to unsigned short).
 enum {
@@ -172,8 +157,10 @@ enum {
     W_EE = 0xeeee,
 };
 
-// Combine two characters into array index (with respect to endianness).
+// for BYTE_ORDER
 #include <sys/types.h>
+
+// Combine two characters into array index (with respect to endianness).
 #if BYTE_ORDER && BYTE_ORDER == LITTLE_ENDIAN
 #define CCI(c1, c2) ((c1) | ((c2) << 8))
 #elif BYTE_ORDER && BYTE_ORDER == BIG_ENDIAN
@@ -185,7 +172,7 @@ enum {
 // Maps base62 word into numeric value (decoded bits) ORed with word type.
 static
 const unsigned short word2bits[65536] = {
-    // defaults to error
+    // default to error
     [0 ... 65535] = W_EE,
     // macros to initialize regions
 #define R1(w, s, c1, c2, b1, b2) [CCI(c1, c2)] = w | (c1 - b1) | ((c2 - b2) << s)
@@ -252,7 +239,7 @@ const unsigned short word2bits[65536] = {
     R26x1(W_06, 6, 'A', '\0', 'A' + 10, '\0'),
     R26x1(W_06, 6, 'a', '\0', 'a' + 36, '\0'),
     // last irregular character
-    R2x1(W_05, 5, 'U', '\0', 'A' + 36, '\0'),
+    R2x1(W_05, 5, 'U', '\0', 'A' + 10, '\0'),
     // end of line
     R1x256(W_00, 0, '\0', '\0', '\0', '\0'),
 };
@@ -285,108 +272,96 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     int n = 0;
     unsigned b = 0;
     unsigned bx;
+    // need align
+    if (1 & (long) s) {
+	char buf[3];
+	char *p = buf;
+	if (1 & (long) p)
+	    p++;
+	p[0] = *s++;
+	p[1] = '\0';
+	w = *(unsigned short *) p;
+	b = word2bits[w];
+	switch (b & 0xf000) {
+	case W_06:
+	    n = 6;
+	    b &= 0x0fff;
+	    goto putq_align;
+	case W_05:
+	    n = 5;
+	    b &= 0x0fff;
+	    goto putq_align;
+	default:
+	    // bad input
+	    return -10;
+	}
+    }
   getq:
     w = *(unsigned short *) s;
     s += 2;
     b = word2bits[w];
     if (b < 0x1000) {
-	n = 12;
 	w = *(unsigned short *) s;
 	bx = word2bits[w];
 	if (bx < 0x1000) {
 	    s += 2;
 	    b |= (bx << 12);
-	    n = 24;
+	    goto put24q;
 	}
-	goto putq;
+	goto put12q;
     }
     switch (b & 0xf000) {
     case W_11:
-	n = 11;
 	b &= 0x0fff;
-	goto putq;
+	goto put11q;
     case W_10:
-	n = 10;
 	b &= 0x0fff;
-	goto putq;
+	goto put10q;
     case W_06:
-	assert(!"final 6q char");
-	return -1;
+	// cannot complete the value
+	return -11;
     case W_05:
-	assert(!"final 5q char");
-	return -1;
+	// cannot complete the value
+	return -12;
     case W_00:
-	if (q > 5) {
-	    assert(!"q overrun");
-	    return -1;
-	}
+	// up to 5 bits to complete last character
+	if (q > 5)
+	    return -13;
+	// successful return
 	return v - v_start;
     default:
-	assert(!"bad word");
-	return -1;
+	// bad input
+	return -14;
     }
   getr:
     w = *(unsigned short *) s;
     s += 2;
     b = word2bits[w];
     if (b < 0x1000) {
-	n = 12;
 	w = *(unsigned short *) s;
 	bx = word2bits[w];
 	if (bx < 0x1000) {
 	    s += 2;
 	    b |= (bx << 12);
-	    n = 24;
+	    goto put24r;
 	}
-	goto putr;
+	goto put12r;
     }
     switch (b & 0xf000) {
     case W_11:
-	n = 11;
 	b &= 0x0fff;
-	goto putr;
+	goto put11r;
     case W_10:
-	n = 10;
 	b &= 0x0fff;
-	goto putr;
+	goto put10r;
     case W_06:
 	n = 6;
 	b &= 0x0fff;
-	// oh-oh
-	r |= (b << rfill);
-	rfill += n;
-	left = rfill - m;
-	if (left < 0)
-	    assert(!"not enugh left");
-	r &= rmask;
-	dv = (q << m) | r;
-	v1 = v0 + dv + 1;
-	*v++ = v1;
-	v0 = v1;
-	q = 0;
-	b >>= n - left;
-	n = left;
-	assert(b == 0);
-	return v - v_start;
+	goto putr_last;
     case W_05:
 	n = 5;
 	b &= 0x0fff;
-	// oh-oh
-	r |= (b << rfill);
-	rfill += n;
-	left = rfill - m;
-	if (left < 0)
-	    assert(!"not enugh left");
-	r &= rmask;
-	dv = (q << m) | r;
-	v1 = v0 + dv + 1;
-	*v++ = v1;
-	v0 = v1;
-	q = 0;
-	b >>= n - left;
-	n = left;
-	assert(b == 0);
-	return v - v_start;
+	goto putr_last;
     case W_00:
 	assert(!"incomlete r");
 	return v - v_start;
@@ -394,13 +369,100 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	assert(!"bad word");
 	return -1;
     }
-  putr:
+#define QInit(N) \
+    n = N
+#define RInit(N) \
+    n = N; \
+    r |= (b << rfill); \
+    rfill += n
+#define RMake \
+    left = rfill - m; \
+    if (left < 0) \
+	goto getr; \
+    r &= rmask; \
+    dv = (q << m) | r; \
+    v1 = v0 + dv + 1; \
+    *v++ = v1; \
+    v0 = v1; \
+    q = 0; \
+    b >>= n - left; \
+    n = left
+#define QMake \
+    if (b == 0) { \
+	q += n; \
+	goto getq; \
+    } \
+    vbits = __builtin_ffs(b); \
+    n -= vbits; \
+    b >>= vbits; \
+    q += vbits - 1; \
+    r = b; \
+    rfill = n
+  put24r:
+    RInit(24);
+    RMake;
+    // at most 23 left
+    QMake; RMake;
+    // at most 16 left
+    QMake; RMake;
+    // at most 9 left
+    QMake; RMake;
+    // at most 2 left
+    QMake; goto getr;
+  put12r:
+    RInit(12);
+    RMake;
+    // at most 11 left
+    QMake; RMake;
+    // at most 4 left
+    QMake; goto getr;
+  put11r:
+    RInit(11);
+    RMake;
+    // at most 10 left
+    QMake; RMake;
+    // at most 3 left
+    QMake; goto getr;
+  put10r:
+    RInit(10);
+    RMake;
+    // at most 9 left
+    QMake; RMake;
+    // at most 2 left
+    QMake; goto getr;
+  put24q:
+    QInit(24);
+    QMake; RMake;
+    // at most 17 left
+    QMake; RMake;
+    // at most 10 left
+    QMake; RMake;
+    // at most 3 left
+    QMake; goto getr;
+  put12q:
+    QInit(12);
+    QMake; RMake;
+    // at most 5 left
+    QMake; goto getr;
+  put11q:
+    QInit(11);
+    QMake; RMake;
+    // at most 4 left
+    QMake; goto getr;
+  put10q:
+    QInit(10);
+    QMake; RMake;
+    // at most 3 left
+    QMake; goto getr;
+  putq_align:
+    QMake; goto getr;
+  putr_last:
     r |= (b << rfill);
     rfill += n;
-  rchk:
     left = rfill - m;
+    // must complete the value
     if (left < 0)
-	goto getr;
+	return -1;
     r &= rmask;
     dv = (q << m) | r;
     v1 = v0 + dv + 1;
@@ -409,64 +471,11 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     q = 0;
     b >>= n - left;
     n = left;
-  putq:
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    // rchk
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    // rchk
-    left = rfill - m;
-    if (left < 0)
-	goto getr;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // putq
-    if (b == 0) {
-	q += n;
-	goto getq;
-    }
-    vbits = __builtin_ffs(b);
-    n -= vbits;
-    b >>= vbits;
-    q += vbits - 1;
-    r = b;
-    rfill = n;
-    goto rchk;
+    // only zero bits left
+    if (b != 0)
+	return -1;
+    // successful return
+    return v - v_start;
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:
