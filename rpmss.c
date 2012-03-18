@@ -307,20 +307,26 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	    return -10;
 	}
     }
-  getq:
-    w = *(unsigned short *) s;
-    s += 2;
-    b = word2bits[w];
-    if (b < 0x1000) {
-	w = *(unsigned short *) s;
-	bx = word2bits[w];
-	if (bx < 0x1000) {
-	    s += 2;
-	    b |= (bx << 12);
-	    goto put24q;
-	}
-	goto put12q;
-    }
+    // base62 pieces
+#define Get24(put24, put12, gotfew) \
+    w = *(unsigned short *) s; \
+    s += 2; \
+    b = word2bits[w]; \
+    if (b >= 0x1000) \
+	goto gotfew; \
+    w = *(unsigned short *) s; \
+    s += 2; \
+    bx = word2bits[w]; \
+    if (bx > 0x1000) \
+	goto put12; \
+    b |= (bx << 12); \
+    goto put24
+    // make coroutines
+  get24q:
+    Get24(put24q, put12q, gotfewq);
+  getbxq:
+    b = bx;
+  gotfewq:
     switch (b & 0xf000) {
     case W_11:
 	b &= 0x0fff;
@@ -344,20 +350,11 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	// bad input
 	return -14;
     }
-  getr:
-    w = *(unsigned short *) s;
-    s += 2;
-    b = word2bits[w];
-    if (b < 0x1000) {
-	w = *(unsigned short *) s;
-	bx = word2bits[w];
-	if (bx < 0x1000) {
-	    s += 2;
-	    b |= (bx << 12);
-	    goto put24r;
-	}
-	goto put12r;
-    }
+  get24r:
+    Get24(put24r, put12r, gotfewr);
+  getbxr:
+    b = bx;
+  gotfewr:
     switch (b & 0xf000) {
     case W_11:
 	b &= 0x0fff;
@@ -380,13 +377,14 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	// bad input
 	return -16;
     }
+    // golomb pieces
 #define QInit(N) \
     n = N
 #define RInit(N) \
     n = N; \
     r |= (b << rfill); \
     rfill += n
-#define RMake \
+#define RMake(getr) \
     left = rfill - m; \
     if (left < 0) \
 	goto getr; \
@@ -398,7 +396,7 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     q = 0; \
     b >>= n - left; \
     n = left
-#define QMake \
+#define QMake(getq) \
     if (b == 0) { \
 	q += n; \
 	goto getq; \
@@ -409,64 +407,65 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     q += vbits - 1; \
     r = b; \
     rfill = n
+    // make coroutines
   put24r:
     RInit(24);
-    RMake;
+    RMake(get24r);
     // at most 23 left
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 16 left
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 9 left
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 2 left
-    QMake; goto getr;
+    QMake(get24q); goto get24r;
   put12r:
     RInit(12);
-    RMake;
+    RMake(getbxr);
     // at most 11 left
-    QMake; RMake;
+    QMake(getbxq); RMake(getbxr);
     // at most 4 left
-    QMake; goto getr;
+    QMake(getbxq); goto getbxr;
   put11r:
     RInit(11);
-    RMake;
+    RMake(get24r);
     // at most 10 left
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 3 left
-    QMake; goto getr;
+    QMake(get24q); goto get24r;
   put10r:
     RInit(10);
-    RMake;
+    RMake(get24r);
     // at most 9 left
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 2 left
-    QMake; goto getr;
+    QMake(get24q); goto get24r;
   put24q:
     QInit(24);
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 17 left
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 10 left
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 3 left
-    QMake; goto getr;
+    QMake(get24q); goto get24r;
   put12q:
     QInit(12);
-    QMake; RMake;
+    QMake(getbxq); RMake(getbxr);
     // at most 5 left
-    QMake; goto getr;
+    QMake(getbxq); goto getbxr;
   put11q:
     QInit(11);
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 4 left
-    QMake; goto getr;
+    QMake(get24q); goto get24r;
   put10q:
     QInit(10);
-    QMake; RMake;
+    QMake(get24q); RMake(get24r);
     // at most 3 left
-    QMake; goto getr;
+    QMake(get24q); goto get24r;
   putq_align:
-    QMake; goto getr;
+    QMake(get24q); goto get24r;
   putr_last:
     r |= (b << rfill);
     rfill += n;
