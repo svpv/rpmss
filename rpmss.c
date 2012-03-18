@@ -4,10 +4,7 @@
 static inline
 int log2i(int n)
 {
-    int m = 0;
-    while (n >>= 1)
-	m++;
-    return m;
+    return 31 - __builtin_clz(n);
 }
 
 static inline
