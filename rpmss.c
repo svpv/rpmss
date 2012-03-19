@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <assert.h>
 #include "rpmss.h"
 
@@ -66,11 +67,13 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     do {
 	// make dv
 	v0++;
+	if (v == 0 && s != s_start)
+	    return -10;
 	v1 = *v++;
-	if (v1 > vmax)
-	    return -4;
 	if (v1 < v0)
-	    return -5;
+	    return -11;
+	if (v1 > vmax)
+	    return -11;
 	dv = v1 - v0;
 	v0 = v1;
 	// put q
@@ -274,6 +277,9 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     // delta
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
+    unsigned vmax = ~0u;
+    if (bpp < 32)
+	vmax = (1 << bpp) - 1;
     // golomb encoding
     int q = 0;
     unsigned r = 0;
@@ -283,7 +289,45 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     int n = 0;
     unsigned b = 0;
     unsigned bx;
-    // need align
+    // golomb pieces
+#define QInit(N) \
+    n = N
+#define RInit(N) \
+    n = N; \
+    r |= (b << rfill); \
+    rfill += n
+#define RMake(GetMore) \
+    left = rfill - m; \
+    if (left < 0) { \
+	goto GetMore; \
+    } \
+    r &= rmask; \
+    dv = (q << m) | r; \
+    v0++; \
+    if (v == 0 && v != v_start) \
+	return -10; \
+    v1 = v0 + dv; \
+    if (v1 < v0) \
+	return -11; \
+    if (v1 > vmax) \
+	return -12; \
+    *v++ = v1; \
+    v0 = v1; \
+    q = 0; \
+    b >>= n - left; \
+    n = left
+#define QMake(GetMore) \
+    if (b == 0) { \
+	q += n; \
+	goto GetMore; \
+    } \
+    vbits = __builtin_ffs(b); \
+    n -= vbits; \
+    b >>= vbits; \
+    q += vbits - 1; \
+    r = b; \
+    rfill = n
+    // align
     if (1 & (long) s) {
 	char buf[3];
 	char *p = buf;
@@ -295,120 +339,52 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	b = word2bits[w];
 	switch (b & 0xf000) {
 	case W_06:
-	    n = 6;
 	    b &= 0x0fff;
-	    goto putq_align;
+	    QInit(6);
+	    QMake(get24q); goto get24r;
 	case W_05:
-	    n = 5;
 	    b &= 0x0fff;
-	    goto putq_align;
+	    QInit(5);
+	    QMake(get24q); goto get24r;
 	default:
 	    // bad input
-	    return -10;
+	    return -20;
 	}
     }
-    // base62 pieces
-#define Get24(put24, put12, gotfew) \
-    w = *(unsigned short *) s; \
-    s += 2; \
-    b = word2bits[w]; \
-    if (b >= 0x1000) \
-	goto gotfew; \
-    w = *(unsigned short *) s; \
-    s += 2; \
-    bx = word2bits[w]; \
-    if (bx > 0x1000) \
-	goto put12; \
-    b |= (bx << 12); \
-    goto put24
-    // make coroutines
   get24q:
-    Get24(put24q, put12q, gotfewq);
-  getbxq:
-    b = bx;
-  gotfewq:
-    switch (b & 0xf000) {
-    case W_11:
-	b &= 0x0fff;
-	goto put11q;
-    case W_10:
-	b &= 0x0fff;
-	goto put10q;
-    case W_06:
-	// cannot complete the value
-	return -11;
-    case W_05:
-	// cannot complete the value
-	return -12;
-    case W_00:
-	// up to 5 bits to complete last character
-	if (q > 5)
-	    return -13;
-	// successful return
-	return v - v_start;
-    default:
-	// bad input
-	return -14;
-    }
+    w = *(unsigned short *) s;
+    s += 2;
+    b = word2bits[w];
+    if (b > 0x0fff)
+	goto gotfewq;
+    w = *(unsigned short *) s;
+    s += 2;
+    bx = word2bits[w];
+    if (bx > 0x0fff)
+	goto got12q;
+    b |= (bx << 12);
+    // put 24 bits and recur
+    QInit(24);
+    QMake(get24q); RMake(get24r);
+    // at most 17 left
+    QMake(get24q); RMake(get24r);
+    // at most 10 left
+    QMake(get24q); RMake(get24r);
+    // at most 3 left
+    QMake(get24q); goto get24r;
   get24r:
-    Get24(put24r, put12r, gotfewr);
-  getbxr:
-    b = bx;
-  gotfewr:
-    switch (b & 0xf000) {
-    case W_11:
-	b &= 0x0fff;
-	goto put11r;
-    case W_10:
-	b &= 0x0fff;
-	goto put10r;
-    case W_06:
-	n = 6;
-	b &= 0x0fff;
-	goto putr_last;
-    case W_05:
-	n = 5;
-	b &= 0x0fff;
-	goto putr_last;
-    case W_00:
-	// cannot complete the value
-	return -15;
-    default:
-	// bad input
-	return -16;
-    }
-    // golomb pieces
-#define QInit(N) \
-    n = N
-#define RInit(N) \
-    n = N; \
-    r |= (b << rfill); \
-    rfill += n
-#define RMake(getr) \
-    left = rfill - m; \
-    if (left < 0) \
-	goto getr; \
-    r &= rmask; \
-    dv = (q << m) | r; \
-    v1 = v0 + dv + 1; \
-    *v++ = v1; \
-    v0 = v1; \
-    q = 0; \
-    b >>= n - left; \
-    n = left
-#define QMake(getq) \
-    if (b == 0) { \
-	q += n; \
-	goto getq; \
-    } \
-    vbits = __builtin_ffs(b); \
-    n -= vbits; \
-    b >>= vbits; \
-    q += vbits - 1; \
-    r = b; \
-    rfill = n
-    // make coroutines
-  put24r:
+    w = *(unsigned short *) s;
+    s += 2;
+    b = word2bits[w];
+    if (b > 0x0fff)
+	goto gotfewr;
+    w = *(unsigned short *) s;
+    s += 2;
+    bx = word2bits[w];
+    if (bx > 0x0fff)
+	goto got12r;
+    b |= (bx << 12);
+    // put 24 bits and recur
     RInit(24);
     RMake(get24r);
     // at most 23 left
@@ -419,73 +395,102 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     QMake(get24q); RMake(get24r);
     // at most 2 left
     QMake(get24q); goto get24r;
-  put12r:
+  got12r:
+    // put 12 bits and then process bx
     RInit(12);
     RMake(getbxr);
     // at most 11 left
     QMake(getbxq); RMake(getbxr);
     // at most 4 left
     QMake(getbxq); goto getbxr;
-  put11r:
-    RInit(11);
-    RMake(get24r);
-    // at most 10 left
-    QMake(get24q); RMake(get24r);
-    // at most 3 left
-    QMake(get24q); goto get24r;
-  put10r:
-    RInit(10);
-    RMake(get24r);
-    // at most 9 left
-    QMake(get24q); RMake(get24r);
-    // at most 2 left
-    QMake(get24q); goto get24r;
-  put24q:
-    QInit(24);
-    QMake(get24q); RMake(get24r);
-    // at most 17 left
-    QMake(get24q); RMake(get24r);
-    // at most 10 left
-    QMake(get24q); RMake(get24r);
-    // at most 3 left
-    QMake(get24q); goto get24r;
-  put12q:
+  getbxr:
+    b = bx;
+  gotfewr:
+    switch (b & 0xf000) {
+    case W_11:
+	b &= 0x0fff;
+	RInit(11);
+	RMake(get24r);
+	// at most 10 left
+	QMake(get24q); RMake(get24r);
+	// at most 3 left
+	QMake(get24q); goto get24r;
+    case W_10:
+	b &= 0x0fff;
+	RInit(10);
+	RMake(get24r);
+	// at most 9 left
+	QMake(get24q); RMake(get24r);
+	// at most 2 left
+	QMake(get24q); goto get24r;
+    case W_06:
+	b &= 0x0fff;
+	RInit(6);
+	RMake(trunc6r);
+	// only zero bits left
+	if (b != 0)
+	    return -21;
+	// successful return
+	return v - v_start;
+    case W_05:
+	b &= 0x0fff;
+	RInit(5);
+	RMake(trunc5r);
+	// only zero bits left
+	if (b != 0)
+	    return -22;
+	// successful return
+	return v - v_start;
+    case W_00:
+	// cannot complete the value
+	return -23;
+    default:
+	// bad input
+	return -24;
+    }
+  trunc6r:
+    fprintf(stderr, "left=%d\n", left);
+	return -25;
+  trunc5r:
+	return -26;
+  got12q:
+    // put 12 bits and then process bx
     QInit(12);
     QMake(getbxq); RMake(getbxr);
     // at most 5 left
     QMake(getbxq); goto getbxr;
-  put11q:
-    QInit(11);
-    QMake(get24q); RMake(get24r);
-    // at most 4 left
-    QMake(get24q); goto get24r;
-  put10q:
-    QInit(10);
-    QMake(get24q); RMake(get24r);
-    // at most 3 left
-    QMake(get24q); goto get24r;
-  putq_align:
-    QMake(get24q); goto get24r;
-  putr_last:
-    r |= (b << rfill);
-    rfill += n;
-    left = rfill - m;
-    // must complete the value
-    if (left < 0)
-	return -1;
-    r &= rmask;
-    dv = (q << m) | r;
-    v1 = v0 + dv + 1;
-    *v++ = v1;
-    v0 = v1;
-    q = 0;
-    b >>= n - left;
-    n = left;
-    // only zero bits left
-    if (b != 0)
-	return -1;
-    // successful return
-    return v - v_start;
+  getbxq:
+    b = bx;
+  gotfewq:
+    switch (b & 0xf000) {
+    case W_11:
+	b &= 0x0fff;
+	QInit(11);
+	QMake(get24q); RMake(get24r);
+	// at most 4 left
+	QMake(get24q); goto get24r;
+    case W_10:
+	b &= 0x0fff;
+	QInit(10);
+	QMake(get24q); RMake(get24r);
+	// at most 3 left
+	QMake(get24q); goto get24r;
+    case W_06:
+	// cannot complete the value
+	return -27;
+    case W_05:
+	// cannot complete the value
+	return -28;
+    case W_00:
+	// up to 5 bits to complete last character
+	if (q > 5)
+	    return -29;
+	// successful return
+	return v - v_start;
+    default:
+	// bad input
+	return -30;
+    }
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:
