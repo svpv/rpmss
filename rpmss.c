@@ -11,7 +11,10 @@ int log2i(int n)
 static inline
 int estimate_m(int c, int bpp)
 {
-    int m = bpp - log2i(c) - 1;
+    // Basically, log2(range/c) = bpp - log2(c) gives the number of bits
+    // in an average delta, and m must be slightly less than this number.
+    // Since m must be an integer, this involves an ad-hoc rounding off.
+    int m = bpp - log2i(c + c / 32) - 1;
     if (m < 7)
 	m = 7;
     return m;
@@ -58,7 +61,7 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     // golomb encoding
     int q;
     unsigned r;
-    const unsigned rmask = (1 << m) - 1;
+    unsigned rmask = (1 << m) - 1;
     // pending bits
     int n = 0;
     unsigned b = 0;
@@ -284,11 +287,11 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     int q = 0;
     unsigned r = 0;
     int rfill = 0;
-    const unsigned rmask = (1 << m) - 1;
+    unsigned rmask = (1 << m) - 1;
+    int qmax = (1 << (bpp - m)) - 1;
     // pending bits
     int n = 0;
     unsigned b = 0;
-    unsigned bx;
     // golomb pieces
 #define QInit(N) \
     n = N
@@ -296,11 +299,10 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     n = N; \
     r |= (b << rfill); \
     rfill += n
-#define RMake(GetMore) \
+#define RMake \
     left = rfill - m; \
-    if (left < 0) { \
-	goto GetMore; \
-    } \
+    if (left < 0) \
+	goto getr; \
     r &= rmask; \
     dv = (q << m) | r; \
     v0++; \
@@ -316,15 +318,18 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     q = 0; \
     b >>= n - left; \
     n = left
-#define QMake(GetMore) \
+#define QMake \
     if (b == 0) { \
 	q += n; \
-	goto GetMore; \
+	goto getq; \
     } \
     vbits = __builtin_ffs(b); \
     n -= vbits; \
     b >>= vbits; \
     q += vbits - 1; \
+    qmax -= q; \
+    if (qmax < 0) \
+	return - 13; \
     r = b; \
     rfill = n
     // align
@@ -341,140 +346,40 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
 	case W_06:
 	    b &= 0x0fff;
 	    QInit(6);
-	    QMake(get24q); goto get24r;
+	    QMake; goto getr;
 	case W_05:
 	    b &= 0x0fff;
 	    QInit(5);
-	    QMake(get24q); goto get24r;
+	    QMake; goto getr;
 	default:
 	    // bad input
 	    return -20;
 	}
     }
-  get24q:
+    // main coroutines
+  getq:
     w = *(unsigned short *) s;
     s += 2;
     b = word2bits[w];
-    if (b > 0x0fff)
-	goto gotfewq;
-    w = *(unsigned short *) s;
-    s += 2;
-    bx = word2bits[w];
-    if (bx > 0x0fff)
-	goto got12q;
-    b |= (bx << 12);
-    // put 24 bits and recur
-    QInit(24);
-    QMake(get24q); RMake(get24r);
-    // at most 17 left
-    QMake(get24q); RMake(get24r);
-    // at most 10 left
-    QMake(get24q); RMake(get24r);
-    // at most 3 left
-    QMake(get24q); goto get24r;
-  get24r:
-    w = *(unsigned short *) s;
-    s += 2;
-    b = word2bits[w];
-    if (b > 0x0fff)
-	goto gotfewr;
-    w = *(unsigned short *) s;
-    s += 2;
-    bx = word2bits[w];
-    if (bx > 0x0fff)
-	goto got12r;
-    b |= (bx << 12);
-    // put 24 bits and recur
-    RInit(24);
-    RMake(get24r);
-    // at most 23 left
-    QMake(get24q); RMake(get24r);
-    // at most 16 left
-    QMake(get24q); RMake(get24r);
-    // at most 9 left
-    QMake(get24q); RMake(get24r);
-    // at most 2 left
-    QMake(get24q); goto get24r;
-  got12r:
-    // put 12 bits and then process bx
-    RInit(12);
-    RMake(getbxr);
-    // at most 11 left
-    QMake(getbxq); RMake(getbxr);
-    // at most 4 left
-    QMake(getbxq); goto getbxr;
-  getbxr:
-    b = bx;
-  gotfewr:
-    switch (b & 0xf000) {
-    case W_11:
-	b &= 0x0fff;
-	RInit(11);
-	RMake(get24r);
-	// at most 10 left
-	QMake(get24q); RMake(get24r);
-	// at most 3 left
-	QMake(get24q); goto get24r;
-    case W_10:
-	b &= 0x0fff;
-	RInit(10);
-	RMake(get24r);
-	// at most 9 left
-	QMake(get24q); RMake(get24r);
-	// at most 2 left
-	QMake(get24q); goto get24r;
-    case W_06:
-	b &= 0x0fff;
-	RInit(6);
-	RMake(trunc6r);
-	// only zero bits left
-	if (b != 0)
-	    return -21;
-	// successful return
-	return v - v_start;
-    case W_05:
-	b &= 0x0fff;
-	RInit(5);
-	RMake(trunc5r);
-	// only zero bits left
-	if (b != 0)
-	    return -22;
-	// successful return
-	return v - v_start;
-    case W_00:
-	// cannot complete the value
-	return -23;
-    default:
-	// bad input
-	return -24;
+    if (b < 0x1000) {
+	QInit(12);
+	QMake; RMake;
+	// at most 5 left
+	QMake; goto getr;
     }
-  trunc6r:
-    fprintf(stderr, "left=%d\n", left);
-	return -25;
-  trunc5r:
-	return -26;
-  got12q:
-    // put 12 bits and then process bx
-    QInit(12);
-    QMake(getbxq); RMake(getbxr);
-    // at most 5 left
-    QMake(getbxq); goto getbxr;
-  getbxq:
-    b = bx;
-  gotfewq:
     switch (b & 0xf000) {
     case W_11:
 	b &= 0x0fff;
 	QInit(11);
-	QMake(get24q); RMake(get24r);
+	QMake; RMake;
 	// at most 4 left
-	QMake(get24q); goto get24r;
+	QMake; goto getr;
     case W_10:
 	b &= 0x0fff;
 	QInit(10);
-	QMake(get24q); RMake(get24r);
+	QMake; RMake;
 	// at most 3 left
-	QMake(get24q); goto get24r;
+	QMake; goto getr;
     case W_06:
 	// cannot complete the value
 	return -27;
@@ -490,6 +395,62 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     default:
 	// bad input
 	return -30;
+    }
+  getr:
+    w = *(unsigned short *) s;
+    s += 2;
+    b = word2bits[w];
+    if (b < 0x1000) {
+	RInit(12);
+	RMake;
+	// at most 11 left
+	QMake; RMake;
+	// at most 4 left
+	QMake; goto getr;
+    }
+    switch (b & 0xf000) {
+    case W_11:
+	b &= 0x0fff;
+	RInit(11);
+	RMake;
+	// at most 10 left
+	QMake; RMake;
+	// at most 3 left
+	QMake; goto getr;
+    case W_10:
+	b &= 0x0fff;
+	RInit(10);
+	RMake;
+	// at most 9 left
+	QMake; RMake;
+	// at most 2 left
+	QMake; goto getr;
+    case W_06:
+	b &= 0x0fff;
+	RInit(6);
+	// XXX
+	RMake;
+	// only zero bits left
+	if (b != 0)
+	    return -21;
+	// successful return
+	return v - v_start;
+    case W_05:
+	b &= 0x0fff;
+	RInit(5);
+	// XXX
+	RMake;
+	// only zero bits left
+	if (b != 0)
+	    return -22;
+	// successful return
+	return v - v_start;
+    case W_00:
+	// cannot complete the value
+	return -23;
+    default:
+	// bad input
+	return -24;
     }
 }
 

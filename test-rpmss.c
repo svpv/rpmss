@@ -26,7 +26,7 @@ void test_set(int c0, unsigned *v0, int bpp0)
     int bpp1;
     int c1 = rpmssDecode(s, v1, &bpp1);
     assert(c1 > 0);
-#if 1
+#if 0
     rpmssDecode(s, v1, &bpp1);
     rpmssDecode(s, v1, &bpp1);
     rpmssDecode(s, v1, &bpp1);
