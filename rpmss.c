@@ -128,7 +128,6 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
 	r = dv & rmask;
 	b |= (r << n);
 	n += m;
-	bitc += q + 1 + m;
 	do {
 	    switch (b & 31) {
 	    case 30:

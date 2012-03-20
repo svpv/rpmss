@@ -5,6 +5,15 @@
  * \file lib/rpmss.h
  * Set-string implementation routines.
  *
+ * A set-string is an alphanumeric string which represents a set of numberic
+ * values, such as hash values of some data elements.  For uniformly
+ * distributed hash values, the encoding routine yields an optimal (shortest
+ * length) string.  For exmaple, to encode a set of 1024 20-bit hash values,
+ * it takes only about 11.55 bits, which is about 1.94 characters, per value
+ * (the expected string length is 1988, which includes two leading characters
+ * that encode parameters).  The corresponding limit set by information theory
+ * is log_2{2^{20}\choose2^{10}}=11.44 bits per value.
+ *
  * Written by Alexey Tourbin.
  */
 
