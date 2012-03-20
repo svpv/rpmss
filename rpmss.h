@@ -5,7 +5,7 @@
  * \file lib/rpmss.h
  * Set-string implementation routines.
  *
- * A set-string is an alphanumeric string which represents a set of numberic
+ * A set-string is an alphanumeric string which represents a set of numeric
  * values, such as hash values of some data elements.  For uniformly
  * distributed hash values, the encoding routine yields an optimal (shortest
  * length) string.  For exmaple, to encode a set of 1024 20-bit hash values,
@@ -13,6 +13,14 @@
  * (the expected string length is 1988, which includes two leading characters
  * that encode parameters).  The corresponding limit set by information theory
  * is log_2{2^{20}\choose2^{10}}=11.44 bits per value.
+ *
+ * Set-string format permits reasonably efficient decoding - e.g. no division
+ * in a loop is required.  Furthermore, the decoding routine aims to provide
+ * better performance by reading and processing two characters at a time.
+ * However, a variable-length code requires additional validation steps, which
+ * can become a somewhat limiting factor.  The decoding routine typically takes
+ * about 25 instructions per character.  For comparison, a naive strlen
+ * impelmentation takes 3 instructions per character.
  *
  * Written by Alexey Tourbin.
  */
