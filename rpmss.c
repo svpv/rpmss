@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <assert.h>
 #include "rpmss.h"
 
@@ -40,6 +41,15 @@ const char bits2char[] = "0123456789"
 
 int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
 {
+    static int initialized;
+    static long bitc;
+    void stats(void) {
+	fprintf(stderr, "bitc=%ld\n", bitc);
+    }
+    if (!initialized) {
+	initialized = 1;
+	atexit(stats);
+    }
     // no empty sets
     if (c < 1)
 	return -1;
@@ -100,6 +110,7 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
 	r = dv & rmask;
 	b |= (r << n);
 	n += m;
+	bitc += q + 1 + m;
 	do {
 	    switch (b & 31) {
 	    case 30:
