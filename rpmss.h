@@ -15,10 +15,11 @@ extern "C" {
 /** \ingroup rpmss
  * Estimate the size of a string buffer for encoding.
  * @param c		number of values in a set
+ * @param v		the values, sorted and unique
  * @param bpp		actual bits per value, 10..32
  * @return		buffer size for encoding, < 0 on error
  */
-int rpmssEncodeSize(int c, int bpp);
+int rpmssEncodeSize(int c, unsigned *v, int bpp);
 
 /** \ingroup rpmss
  * Encode a set of numeric values into alnum string.

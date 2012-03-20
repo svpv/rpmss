@@ -97,7 +97,7 @@ const char *set_fini(struct set *set, int bpp)
     }
     int c = uniqv(set->c, v);
     // encode2
-    char s[rpmssEncodeSize(c, bpp)];
+    char s[rpmssEncodeSize(c, v, bpp)];
     int len = rpmssEncode(c, v, bpp, s);
     if (len < 0)
 	return NULL;

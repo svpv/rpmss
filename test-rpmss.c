@@ -9,7 +9,7 @@ static
 void test_set(int c0, unsigned *v0, int bpp0)
 {
     // encode
-    int strsize = rpmssEncodeSize(c0, bpp0);
+    int strsize = rpmssEncodeSize(c0, v0, bpp0);
     assert(strsize > 0);
     // check overruns
     char *sbuf = malloc(strsize + 1024);
@@ -26,6 +26,7 @@ void test_set(int c0, unsigned *v0, int bpp0)
     int bpp1;
     int c1 = rpmssDecode(s, v1, &bpp1);
     assert(c1 > 0);
+    printf("set:%s\n", s)
 #if 0
     rpmssDecode(s, v1, &bpp1);
     rpmssDecode(s, v1, &bpp1);

@@ -9,8 +9,25 @@ int log2i(int n)
     return 31 - __builtin_clz(n);
 }
 
+// average dv to take m higher than 6
+static
+const unsigned dvmin[] = {
+    // 0..6, unused
+    0, 0, 0, 0, 0, 0, 0,
+    // 7..9
+    132, 265, 531,
+    // 10..19
+    1063, 2127, 4255, 8511, 17023,
+    34046, 68094, 136189, 272378, 544757,
+    // 20..29
+    1089515, 2179031, 4358063, 8716127, 17432256,
+    34864512, 69729026, 139458052, 278916113, 557832191,
+    // 30..31
+    1115664521, 2231328490,
+};
+
 static inline
-int estimate_m(int c, int bpp)
+int estimate_m(int c, const unsigned *v, int bpp)
 {
     // Basically, log2(range/c) = bpp - log2(c) gives the number of bits
     // in an average delta, and m must be slightly less than this number.
@@ -18,12 +35,22 @@ int estimate_m(int c, int bpp)
     int m = bpp - log2i(c + c / 32) - 1;
     if (m < 7)
 	m = 7;
-    return m;
+    // average dv
+    unsigned dv = (v[c - 1] - c + 1) / c;
+    int i;
+    int m2 = 7;
+    for (i = 8; i < 32; i++) {
+	if (dv > dvmin[i])
+	    m2++;
+	else
+	    break;
+    }
+    return m2;
 }
 
-int rpmssEncodeSize(int c, int bpp)
+int rpmssEncodeSize(int c, unsigned *v, int bpp)
 {
-    int m = estimate_m(c, bpp);
+    int m = estimate_m(c, v, bpp);
     // need at least (m + 1) bits per value
     int bitc = c * (m + 1);
     // the second term is much tricker: assuming that remainders are small,
@@ -41,15 +68,6 @@ const char bits2char[] = "0123456789"
 
 int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
 {
-    static int initialized;
-    static long bitc;
-    void stats(void) {
-	fprintf(stderr, "bitc=%ld\n", bitc);
-    }
-    if (!initialized) {
-	initialized = 1;
-	atexit(stats);
-    }
     // no empty sets
     if (c < 1)
 	return -1;
@@ -57,7 +75,7 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     if (bpp < 10 || bpp > 32)
 	return -2;
     // prepare golomb parameter
-    int m = estimate_m(c, bpp);
+    int m = estimate_m(c, v, bpp);
     // put control chars
     const char *s_start = s;
     *s++ = bpp - 7 + 'a';
