@@ -1,64 +1,75 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include <assert.h>
 #include "rpmss.h"
 
-static inline
-int log2i(int n)
-{
-    return 31 - __builtin_clz(n);
-}
+/*
+ * References
+ * 1. Felix Putze, Peter Sanders, Johannes Singler (2007)
+ *    Cache-, Hash- and Space-Efficient Bloom Filters
+ * 2. A. Kiely (2004)
+ *    Selecting the Golomb Parameter in Rice Coding
+ * 3. Alistair Moffat, Andrew Turpin (2002)
+ *    Compression and Coding Algorithms
+ * 4. Kejing He, Xiancheng Xu, Qiang Yue (2008)
+ *    A Secure, Lossless, and Compressed Base62 Encoding
+ */
 
-// average dv to take m higher than 6
+// dv range appropriate for m
 static
-const unsigned dvmin[] = {
-    // 0..6, unused
-    0, 0, 0, 0, 0, 0, 0,
-    // 7..9
-    132, 265, 531,
+const unsigned dvmax[] = {
+    // 0..5, unused
+    0, 0, 0, 0, 0, 0,
+    // 6..9
+    132, 265, 531, 1063,
     // 10..19
-    1063, 2127, 4255, 8511, 17023,
-    34046, 68094, 136189, 272378, 544757,
+    2127, 4255, 8511, 17023, 34046,
+    68094, 136189, 272378, 544757, 1089515,
     // 20..29
-    1089515, 2179031, 4358063, 8716127, 17432256,
-    34864512, 69729026, 139458052, 278916113, 557832191,
-    // 30..31
-    1115664521, 2231328490,
+    2179031, 4358063, 8716127, 17432256, 34864512,
+    69729026, 139458052, 278916113, 557832191, 1115664521,
+    // 30
+    2231328490,
+    // 31 otherwise
 };
 
-static inline
-int estimate_m(int c, const unsigned *v, int bpp)
+static
+int encodeInit(const unsigned *v, int n, int bpp)
 {
-    // Basically, log2(range/c) = bpp - log2(c) gives the number of bits
-    // in an average delta, and m must be slightly less than this number.
-    // Since m must be an integer, this involves an ad-hoc rounding off.
-    int m = bpp - log2i(c + c / 32) - 1;
-    if (m < 7)
-	m = 7;
+    // no empty sets
+    if (n < 1)
+	return -1;
+    // validate bpp
+    if (bpp < 8 || bpp > 32)
+	return -2;
+    // last value must fit within bpp range
+    if (bpp < 32 && v[n - 1] >> bpp)
+	return -3;
+    // last value must be consistent with the sequence
+    if (v[n - 1] < (unsigned) n - 1)
+	return -4;
     // average dv
-    unsigned dv = (v[c - 1] - c + 1) / c;
-    int i;
-    int m2 = 7;
-    for (i = 8; i < 32; i++) {
-	if (dv > dvmin[i])
-	    m2++;
-	else
+    unsigned dv = (v[n - 1] - n + 1) / n;
+    // select m
+    int m;
+    for (m = 6; m < 31; m++)
+	if (dv <= dvmax[m])
 	    break;
-    }
-    return m2;
+    assert(m < bpp);
+    return m;
 }
 
-int rpmssEncodeSize(int c, unsigned *v, int bpp)
+int rpmssEncodeSize(const unsigned *v, int n, int bpp)
 {
-    int m = estimate_m(c, v, bpp);
+    int m = encodeInit(v, n, bpp);
+    if (m < 0)
+	return m;
     // need at least (m + 1) bits per value
-    int bitc = c * (m + 1);
+    int bits1 = n * (m + 1);
     // the second term is much tricker: assuming that remainders are small,
     // q deltas must have enough room to cover the whole range
-    bitc += (1 << (bpp - m)) - 1;
+    int bits2 = (v[n - 1] - n + 1) >> m;
     // five bits can make a character, as well as the remaining bits; also
-    // need two leading characeters, and the string must be null-terminated
-    return bitc / 5 + 4;
+    // need two leading characters, and the string must be null-terminated
+    return (bits1 + bits2) / 5 + 4;
 }
 
 static
@@ -66,45 +77,44 @@ const char bits2char[] = "0123456789"
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	"abcdefghijklmnopqrstuvwxyz";
 
-int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
+int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 {
-    // no empty sets
-    if (c < 1)
-	return -1;
-    // validate bpp
-    if (bpp < 10 || bpp > 32)
-	return -2;
-    // prepare golomb parameter
-    int m = estimate_m(c, v, bpp);
-    // put control chars
+    int m = encodeInit(v, n, bpp);
+    if (m < 0)
+	return m;
+    // put parameters
     const char *s_start = s;
-    *s++ = bpp - 7 + 'a';
-    *s++ = m - 7 + 'a';
-    // delta encoding
+    *s++ = bpp - 8 + 'a';
+    *s++ = m - 6 + 'a';
+    // delta
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
-    unsigned vmax = ~0u;
-    if (bpp < 32)
-	vmax = (1 << bpp) - 1;
-    // golomb encoding
+    unsigned vmax = v[n - 1];
+    const unsigned *v_start = v;
+    const unsigned *v_end = v + n;
+    // golomb
     int q;
     unsigned r;
-    unsigned rmask = (1 << m) - 1;
+    unsigned rmask = (1u << m) - 1;
     // pending bits
-    int n = 0;
     unsigned b = 0;
-    // handle values
-    const unsigned *v_end = v + c;
+    // reuse n for pending bit count
+    n = 0;
+    // at the start of each iteration, either (n < 5), or (n == 5) but
+    // the 5 pending bits do not form irregular case; this allows some
+    // shortcuts when putting q: for (n >= 6), only regular cases are
+    // possible - either by the starting condition, or by the virtue
+    // of preceding zero bits (since irregular cases need 5th bit set)
     do {
 	// make dv
 	v0++;
-	if (v == 0 && s != s_start)
+	if (v0 == 0 && v != v_start)
 	    return -10;
 	v1 = *v++;
 	if (v1 < v0)
 	    return -11;
 	if (v1 > vmax)
-	    return -11;
+	    return -12;
 	dv = v1 - v0;
 	v0 = v1;
 	// put q
@@ -171,24 +181,37 @@ int rpmssEncode(int c, const unsigned *v, int bpp, char *s)
     return s - s_start;
 }
 
-int rpmssDecodeSize(const char *s, int len)
+static
+int decodeInit(const char *s, int len, int *pbpp)
 {
-    int bpp = *s++ + 7 - 'a';
-    if (bpp < 10 || bpp > 32)
+    int bpp = *s++ - 'a' + 8;
+    if (bpp < 8 || bpp > 32)
 	return -1;
-    int m = *s++ + 7 - 'a';
-    if (m < 7 || m > 31)
+    int m = *s++ - 'a' + 6;
+    if (m < 6 || m > 31)
 	return -2;
     if (m >= bpp)
 	return -3;
     if (*s == '\0')
 	return -4;
     if (len < 4)
-	return -1;
+	return -5;
+    //if (s[len] != '\0')
+	//return -6;
+    *pbpp = bpp;
+    return m;
+}
+
+int rpmssDecodeSize(const char *s, int len)
+{
+    int bpp;
+    int m = decodeInit(s, len, &bpp);
+    if (m < 0)
+	return m;
     // each character will fill at most 6 bits
-    int bitc = (len - 2) * 6;
+    int bits = (len - 2) * 6;
     // each (m + 1) bits can make a value
-    return bitc / (m + 1);
+    return bits / (m + 1);
 }
 
 // Word types (when two bytes from base62 string cast to unsigned short).
@@ -289,20 +312,13 @@ const unsigned short word2bits[65536] = {
     R1x256(W_00, 0, '\0', '\0', '\0', '\0'),
 };
 
-int rpmssDecode(const char *s, unsigned *v, int *pbpp)
+int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
 {
-    int bpp = *s++ + 7 - 'a';
-    if (bpp < 10 || bpp > 32)
-	return -1;
-    int m = *s++ + 7 - 'a';
-    if (m < 7 || m > 31)
-	return -2;
-    if (m >= bpp)
-	return -3;
-    if (*s == '\0')
-	return -4;
+    int bpp;
+    int m = decodeInit(s, len, &bpp);
+    if (m < 0)
+	return m;
     *pbpp = bpp;
-    const unsigned *v_start = v;
     long w;
     int left, vbits;
     // delta
@@ -310,12 +326,13 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     unsigned v1, dv;
     unsigned vmax = ~0u;
     if (bpp < 32)
-	vmax = (1 << bpp) - 1;
-    // golomb encoding
+	vmax = (1u << bpp) - 1;
+    const unsigned *v_start = v;
+    // golomb
     int q = 0;
     unsigned r = 0;
     int rfill = 0;
-    unsigned rmask = (1 << m) - 1;
+    unsigned rmask = (1u << m) - 1;
     int qmax = (1 << (bpp - m)) - 1;
     // pending bits
     int n = 0;
@@ -357,9 +374,11 @@ int rpmssDecode(const char *s, unsigned *v, int *pbpp)
     q += vbits - 1; \
     qmax -= q; \
     if (qmax < 0) \
-	return - 13; \
+	return -13; \
     r = b; \
     rfill = n
+    // skip over parameters
+    s += 2;
     // align
     if (1 & (long) s) {
 	char buf[3];

@@ -6,27 +6,28 @@
 #include "qsort.h"
 
 static
-void test_set(int c0, unsigned *v0, int bpp0)
+void test_set(unsigned *v0, int n0, int bpp0, int print)
 {
     // encode
-    int strsize = rpmssEncodeSize(c0, v0, bpp0);
+    int strsize = rpmssEncodeSize(v0, n0, bpp0);
     assert(strsize > 0);
     // check overruns
     char *sbuf = malloc(strsize + 1024);
     // trigger align
     char *s = sbuf + 1;
-    int len = rpmssEncode(c0, v0, bpp0, s);
+    int len = rpmssEncode(v0, n0, bpp0, s);
     assert(len > 0);
     assert(len < strsize);
     assert(s[len] == '\0');
+    if (print)
+	printf("set:%s\n", s);
     // decode
     int v1size = rpmssDecodeSize(s, len);
-    assert(v1size >= c0);
+    assert(v1size >= n0);
     unsigned *v1 = malloc(v1size * sizeof(unsigned));
     int bpp1;
-    int c1 = rpmssDecode(s, v1, &bpp1);
-    assert(c1 > 0);
-    printf("set:%s\n", s);
+    int n1 = rpmssDecode(s, len, v1, &bpp1);
+    assert(n1 > 0);
 #if 0
     rpmssDecode(s, v1, &bpp1);
     rpmssDecode(s, v1, &bpp1);
@@ -43,9 +44,9 @@ void test_set(int c0, unsigned *v0, int bpp0)
     rpmssDecode(s, v1, &bpp1);
 #endif
     // compare
-    assert(c0 == c1);
+    assert(n0 == n1);
     int i;
-    for (i = 0; i < c0; i++)
+    for (i = 0; i < n0; i++)
 	assert(v0[i] == v1[i]);
     free(sbuf);
     free(v1);
@@ -87,13 +88,13 @@ int make_random_set(int c, unsigned **pv, int bpp)
 }
 
 static
-void test_random_set(int c0, int bpp)
+void test_random_set(int n0, int bpp, int print)
 {
     unsigned *v;
-    int c = make_random_set(c0, &v, bpp);
-    assert(c > 0);
-    assert(c <= c0);
-    test_set(c, v, bpp);
+    int n = make_random_set(n0, &v, bpp);
+    assert(n > 0);
+    assert(n <= n0);
+    test_set(v, n, bpp, print);
     free(v);
 }
 
@@ -111,8 +112,9 @@ int main(int argc, char **argv)
     int max_bpp = 32;
     int min_size = 1;
     int max_size = 99999;
+    int print = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "n:b:B:s:S:")) != -1)
+    while ((opt = getopt(argc, argv, "n:b:B:s:S:p")) != -1)
 	switch (opt) {
 	case 'n':
 	    runs = atoi(optarg);
@@ -129,6 +131,9 @@ int main(int argc, char **argv)
 	case 'S':
 	    max_size = atoi(optarg);
 	    break;
+	case 'p':
+	    print = 1;
+	    break;
 	default:
 	    assert(!"option");
 	}
@@ -136,7 +141,7 @@ int main(int argc, char **argv)
     for (i = 0; i < runs; i++) {
 	int bpp = rand_range(min_bpp, max_bpp);
 	int size = rand_range(min_size, max_size);
-	test_random_set(size, bpp);
+	test_random_set(size, bpp, print);
     }
     return 0;
 }
