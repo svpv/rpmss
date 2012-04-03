@@ -13,24 +13,6 @@
  *    A Secure, Lossless, and Compressed Base62 Encoding
  */
 
-// dv range appropriate for m
-static
-const unsigned dvmax[] = {
-    // 0..5, unused
-    0, 0, 0, 0, 0, 0,
-    // 6..9
-    132, 265, 531, 1063,
-    // 10..19
-    2127, 4255, 8511, 17023, 34046,
-    68094, 136189, 272378, 544757, 1089515,
-    // 20..29
-    2179031, 4358063, 8716127, 17432256, 34864512,
-    69729026, 139458052, 278916113, 557832191, 1115664521,
-    // 30
-    2231328490,
-    // 31 otherwise
-};
-
 static
 int encodeInit(const unsigned *v, int n, int bpp)
 {
@@ -49,10 +31,14 @@ int encodeInit(const unsigned *v, int n, int bpp)
     // average dv
     unsigned dv = (v[n - 1] - n + 1) / n;
     // select m
-    int m;
-    for (m = 6; m < 31; m++)
-	if (dv <= dvmax[m])
+    int m = 6;
+    unsigned range = 133;
+    while (dv > range) {
+	m++;
+	if (m == 31)
 	    break;
+	range = range * 2 + 1;
+    }
     assert(m < bpp);
     return m;
 }

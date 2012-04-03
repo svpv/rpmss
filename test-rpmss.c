@@ -80,8 +80,13 @@ int make_random_set(int c, unsigned **pv, int bpp)
     unsigned mask = ~0u;
     if (bpp < 32)
 	mask = (1 << bpp) - 1;
-    for (i = 0; i < c; i++)
-	v[i] = rand() & mask;
+    for (i = 0; i < c; i++) {
+	v[i] = rand();
+	if (bpp < 32)
+	    v[i] &= mask;
+	else
+	    v[i] ^= (unsigned) rand() << 4;
+    }
     sortv(c, v);
     c = uniqv(c, v);
     return c;
