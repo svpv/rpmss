@@ -14,24 +14,6 @@
  *    A Secure, Lossless, and Compressed Base62 Encoding
  */
 
-// dv range appropriate for m
-static
-const unsigned dvmax[] = {
-    // 0..5, unused
-    0, 0, 0, 0, 0, 0,
-    // 6..9
-    132, 265, 531, 1063,
-    // 10..19
-    2127, 4255, 8511, 17023, 34046,
-    68094, 136189, 272378, 544757, 1089515,
-    // 20..29
-    2179031, 4358063, 8716127, 17432256, 34864512,
-    69729026, 139458052, 278916113, 557832191, 1115664521,
-    // 30
-    2231328490,
-    // 31 otherwise
-};
-
 static
 int encodeInit(const unsigned *v, int n, int bpp)
 {
@@ -50,7 +32,6 @@ int encodeInit(const unsigned *v, int n, int bpp)
     // average dv
     unsigned dv = (v[n - 1] - n + 1) / n;
     // select m
-#if 1
     int m = 6;
     unsigned range = 133;
     while (dv > range) {
@@ -59,12 +40,6 @@ int encodeInit(const unsigned *v, int n, int bpp)
 	    break;
 	range = range * 2 + 1;
     }
-#else
-    int m;
-    for (m = 6; m < 31; m++)
-	if (dv <= dvmax[m])
-	    break;
-#endif
     assert(m < bpp);
     return m;
 }
@@ -89,9 +64,11 @@ const char bits2char[] = "0123456789"
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	"abcdefghijklmnopqrstuvwxyz";
 
-static
-int rpmssEncode_(const unsigned *v, int n, int bpp, int m, char *s)
+int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 {
+    int m = encodeInit(v, n, bpp);
+    if (m < 0)
+	return m;
     // put parameters
     const char *s_start = s;
     *s++ = bpp - 8 + 'a';
@@ -189,30 +166,6 @@ int rpmssEncode_(const unsigned *v, int n, int bpp, int m, char *s)
 	*s++ = bits2char[b];
     *s = '\0';
     return s - s_start;
-}
-
-int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
-{
-    int m = encodeInit(v, n, bpp);
-    if (m < 0)
-	return m;
-    int len0 = rpmssEncode_(v, n, bpp, m, s);
-    if (m > 6) {
-	int len = rpmssEncode_(v, n, bpp, m - 1, s);
-	if (len + 0 < len0) {
-	    fprintf(stderr, "bpp=%d n=%d m--=%d len0=%d len=%d\t%d\n", bpp, n, m, len0, len, len0-len);
-	    return len;
-	}
-    }
-    if (m + 1 < bpp) {
-	int len = rpmssEncode_(v, n, bpp, m + 1, s);
-	if (len + 0 < len0) {
-	    fprintf(stderr, "bpp=%d n=%d m++=%d len0=%d len=%d\t%d\n", bpp, n, m, len0, len, len0-len);
-	    return len;
-	}
-    }
-    len0 = rpmssEncode_(v, n, bpp, m, s);
-    return len0;
 }
 
 static
