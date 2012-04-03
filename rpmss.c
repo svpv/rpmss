@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <assert.h>
 #include "rpmss.h"
 
@@ -63,11 +64,9 @@ const char bits2char[] = "0123456789"
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	"abcdefghijklmnopqrstuvwxyz";
 
-int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
+static
+int rpmssEncode_(const unsigned *v, int n, int bpp, int m, char *s)
 {
-    int m = encodeInit(v, n, bpp);
-    if (m < 0)
-	return m;
     // put parameters
     const char *s_start = s;
     *s++ = bpp - 8 + 'a';
@@ -165,6 +164,30 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	*s++ = bits2char[b];
     *s = '\0';
     return s - s_start;
+}
+
+int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
+{
+    int m = encodeInit(v, n, bpp);
+    if (m < 0)
+	return m;
+    int len0 = rpmssEncode_(v, n, bpp, m, s);
+    if (m > 6) {
+	int len = rpmssEncode_(v, n, bpp, m - 1, s);
+	if (len + 1 < len0) {
+	    fprintf(stderr, "bpp=%d n=%d m--=%d len0=%d len=%d\t%d\n", bpp, n, m, len0, len, len0-len);
+	    return len;
+	}
+    }
+    if (m + 1 < bpp) {
+	int len = rpmssEncode_(v, n, bpp, m + 1, s);
+	if (len + 1 < len0) {
+	    fprintf(stderr, "bpp=%d n=%d m++=%d len0=%d len=%d\t%d\n", bpp, n, m, len0, len, len0-len);
+	    return len;
+	}
+    }
+    len0 = rpmssEncode_(v, n, bpp, m, s);
+    return len0;
 }
 
 static
