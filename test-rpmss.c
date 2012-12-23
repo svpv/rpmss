@@ -28,20 +28,14 @@ void test_set(unsigned *v0, int n0, int bpp0, int print)
     int bpp1;
     int n1 = rpmssDecode(s, len, v1, &bpp1);
     assert(n1 > 0);
-#if 0
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
-    rpmssDecode(s, v1, &bpp1);
+#if 1
+    rpmssDecode(s, len, v1, &bpp1);
+    rpmssDecode(s, len, v1, &bpp1);
+    rpmssDecode(s, len, v1, &bpp1);
+    rpmssDecode(s, len, v1, &bpp1);
+    rpmssDecode(s, len, v1, &bpp1);
+    rpmssDecode(s, len, v1, &bpp1);
+    rpmssDecode(s, len, v1, &bpp1);
 #endif
     // compare
     assert(n0 == n1);

@@ -325,10 +325,7 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
     int n = 0;
     unsigned b = 0;
     // golomb pieces
-#define QInit(N) \
-    n = N
-#define RInit(N) \
-    n = N; \
+#define RInit \
     r |= (b << rfill); \
     rfill += n
 #define RMake \
@@ -379,12 +376,12 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
 	switch (b & 0xf000) {
 	case W_06:
 	    b &= 0x0fff;
-	    QInit(6);
-	    QMake; goto getr;
+	    n = 6;
+	    goto putq;
 	case W_05:
 	    b &= 0x0fff;
-	    QInit(5);
-	    QMake; goto getr;
+	    n = 5;
+	    goto putq;
 	default:
 	    // bad input
 	    return -20;
@@ -396,24 +393,42 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
     s += 2;
     b = word2bits[w];
     if (b < 0x1000) {
-	QInit(12);
-	QMake; RMake;
-	// at most 5 left
-	QMake; goto getr;
+	w = *(unsigned short *) s;
+	unsigned bx = word2bits[w];
+	if (bx < 0x1000) {
+	    s += 2;
+	    b |= (bx << 12);
+	    n = 24;
+	    goto putq;
+	}
+	if (bx < 0x2000) {
+	    s += 2;
+	    bx &= 0x0fff;
+	    b |= (bx << 12);
+	    n = 23;
+	    goto putq;
+	}
+	n = 12;
+	goto putq;
+    }
+    if (b < 0x2000) {
+	b &= 0x0fff;
+	w = *(unsigned short *) s;
+	unsigned bx = word2bits[w];
+	if (bx < 0x1000) {
+	    s += 2;
+	    b |= (bx << 11);
+	    n = 23;
+	    goto putq;
+	}
+	n = 11;
+	goto putq;
     }
     switch (b & 0xf000) {
-    case W_11:
-	b &= 0x0fff;
-	QInit(11);
-	QMake; RMake;
-	// at most 4 left
-	QMake; goto getr;
     case W_10:
 	b &= 0x0fff;
-	QInit(10);
-	QMake; RMake;
-	// at most 3 left
-	QMake; goto getr;
+	n = 10;
+	goto putq;
     case W_06:
 	// cannot complete the value
 	return -27;
@@ -430,39 +445,71 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
 	// bad input
 	return -30;
     }
+  putq:
+    QMake; RMake;
+    // at most 17 left
+    QMake; RMake;
+    // at most 10 left
+    QMake; RMake;
+    // at most 3 left
+    QMake; goto getr;
+  putr:
+    RInit;
+    RMake;
+    // at most 23 left
+    QMake; RMake;
+    // at most 16 left
+    QMake; RMake;
+    // at most 9 left
+    QMake; RMake;
+    // at most 2 left
+    QMake; goto getr;
   getr:
     w = *(unsigned short *) s;
     s += 2;
     b = word2bits[w];
     if (b < 0x1000) {
-	RInit(12);
-	RMake;
-	// at most 11 left
-	QMake; RMake;
-	// at most 4 left
-	QMake; goto getr;
+	w = *(unsigned short *) s;
+	unsigned bx = word2bits[w];
+	if (bx < 0x1000) {
+	    s += 2;
+	    b |= (bx << 12);
+	    n = 24;
+	    goto putr;
+	}
+	if (bx < 0x2000) {
+	    s += 2;
+	    bx &= 0x0fff;
+	    b |= (bx << 12);
+	    n = 23;
+	    goto putr;
+	}
+	n = 12;
+	goto putr;
+    }
+    if (b < 0x2000) {
+	b &= 0x0fff;
+	w = *(unsigned short *) s;
+	unsigned bx = word2bits[w];
+	if (bx < 0x1000) {
+	    s += 2;
+	    b |= (bx << 11);
+	    n = 23;
+	    goto putr;
+	}
+	n = 11;
+	goto putr;
     }
     switch (b & 0xf000) {
-    case W_11:
-	b &= 0x0fff;
-	RInit(11);
-	RMake;
-	// at most 10 left
-	QMake; RMake;
-	// at most 3 left
-	QMake; goto getr;
     case W_10:
 	b &= 0x0fff;
-	RInit(10);
-	RMake;
-	// at most 9 left
-	QMake; RMake;
-	// at most 2 left
-	QMake; goto getr;
+	n = 10;
+	goto putr;
     case W_06:
 	b &= 0x0fff;
-	RInit(6);
+	n = 6;
 	// XXX
+	RInit;
 	RMake;
 	// only zero bits left
 	if (b != 0)
@@ -471,8 +518,9 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
 	return v - v_start;
     case W_05:
 	b &= 0x0fff;
-	RInit(5);
+	n = 5;
 	// XXX
+	RInit;
 	RMake;
 	// only zero bits left
 	if (b != 0)
