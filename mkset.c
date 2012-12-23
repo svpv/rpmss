@@ -36,7 +36,7 @@ const char *set_fini(struct set *set, int bpp)
 {
     if (set->c < 1)
 	return NULL;
-    if (bpp < 10)
+    if (bpp < 8)
 	return NULL;
     if (bpp > 32)
 	return NULL;
@@ -108,7 +108,7 @@ int main(int argc, const char **argv)
 {
     assert(argc == 2);
     int bpp = atoi(argv[1]);
-    assert(bpp >= 10);
+    assert(bpp >= 8);
     assert(bpp <= 32);
     struct set *set = set_new();
     char *line = NULL;
