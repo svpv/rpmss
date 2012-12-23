@@ -206,9 +206,9 @@ enum {
     W_12 = 0x0000,
     W_11 = 0x1000,
     W_10 = 0x2000,
-    W_06 = 0x3000,
-    W_05 = 0x4000,
-    W_00 = 0x5000,
+    W_06 = 0x3000,  /* last 6 bits */
+    W_05 = 0x4000,  /* last 5 bits */
+    W_00 = 0x5000,  /* end of line */
     W_EE = 0xeeee,
 };
 
@@ -306,7 +306,6 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
     if (m < 0)
 	return m;
     *pbpp = bpp;
-    long w;
     int left, vbits;
     // delta
     unsigned v0 = (unsigned) -1;
@@ -324,7 +323,102 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
     // pending bits
     int n = 0;
     unsigned b = 0;
-    // golomb pieces
+    // skip over parameters
+    s += 2;
+    // align
+    if (1 & (long) s) {
+	char buf[3];
+	char *p = buf;
+	if (1 & (long) p)
+	    p++;
+	p[0] = *s++;
+	p[1] = '\0';
+	long w = *(unsigned short *) p;
+	b = word2bits[w];
+	switch (b & 0xf000) {
+	case W_06:
+	    b &= 0x0fff;
+	    n = 6;
+	    goto putq;
+	case W_05:
+	    b &= 0x0fff;
+	    n = 5;
+	    goto putq;
+	default:
+	    // bad input
+	    return -20;
+	}
+    }
+
+    /* Template for getq and getr coroutines */
+#define Get(X) \
+    { \
+	long w = *(unsigned short *) s; \
+	s += 2; \
+	b = word2bits[w]; \
+	/* the most common case: 12 bits */ \
+	if (b < 0x1000) { \
+	    /* further try to combine 12+12 or 12+11 bits */ \
+	    w = *(unsigned short *) s; \
+	    unsigned bx = word2bits[w]; \
+	    if (bx < 0x1000) { \
+		s += 2; \
+		b |= (bx << 12); \
+		n = 24; \
+		goto put ## X; \
+	    } \
+	    if (bx < 0x2000) { \
+		s += 2; \
+		bx &= 0x0fff; \
+		b |= (bx << 12); \
+		n = 23; \
+		goto put ## X; \
+	    } \
+	    n = 12; \
+	    goto put ## X; \
+	} \
+	/* the second most common case: 11 bits */ \
+	if (b < 0x2000) { \
+	    b &= 0x0fff; \
+	    /* further try to combine 11+12 bits */ \
+	    w = *(unsigned short *) s; \
+	    unsigned bx = word2bits[w]; \
+	    if (bx < 0x1000) { \
+		s += 2; \
+		b |= (bx << 11); \
+		n = 23; \
+		goto put ## X; \
+	    } \
+	    n = 11; \
+	    goto put ## X; \
+	} \
+	/* less common cases: fewer bits and/or eol */ \
+	switch (b & 0xf000) { \
+	case W_10: \
+	    b &= 0x0fff; \
+	    n = 10; \
+	    goto put ## X; \
+	case W_06: \
+	    b &= 0x0fff; \
+	    goto put06 ## X; \
+	case W_05: \
+	    b &= 0x0fff; \
+	    goto put05 ## X; \
+	case W_00: \
+	    goto put00 ## X; \
+	default: \
+	    /* bad input */ \
+	    return -21; \
+	} \
+    }
+
+    /* Actually define getq and getr coroutines */
+getq:
+    Get(q);
+getr:
+    Get(r);
+
+    /* golomb pieces */
 #define RInit \
     r |= (b << rfill); \
     rfill += n
@@ -361,91 +455,7 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
 	return -13; \
     r = b; \
     rfill = n
-    // skip over parameters
-    s += 2;
-    // align
-    if (1 & (long) s) {
-	char buf[3];
-	char *p = buf;
-	if (1 & (long) p)
-	    p++;
-	p[0] = *s++;
-	p[1] = '\0';
-	w = *(unsigned short *) p;
-	b = word2bits[w];
-	switch (b & 0xf000) {
-	case W_06:
-	    b &= 0x0fff;
-	    n = 6;
-	    goto putq;
-	case W_05:
-	    b &= 0x0fff;
-	    n = 5;
-	    goto putq;
-	default:
-	    // bad input
-	    return -20;
-	}
-    }
-    // main coroutines
-  getq:
-    w = *(unsigned short *) s;
-    s += 2;
-    b = word2bits[w];
-    if (b < 0x1000) {
-	w = *(unsigned short *) s;
-	unsigned bx = word2bits[w];
-	if (bx < 0x1000) {
-	    s += 2;
-	    b |= (bx << 12);
-	    n = 24;
-	    goto putq;
-	}
-	if (bx < 0x2000) {
-	    s += 2;
-	    bx &= 0x0fff;
-	    b |= (bx << 12);
-	    n = 23;
-	    goto putq;
-	}
-	n = 12;
-	goto putq;
-    }
-    if (b < 0x2000) {
-	b &= 0x0fff;
-	w = *(unsigned short *) s;
-	unsigned bx = word2bits[w];
-	if (bx < 0x1000) {
-	    s += 2;
-	    b |= (bx << 11);
-	    n = 23;
-	    goto putq;
-	}
-	n = 11;
-	goto putq;
-    }
-    switch (b & 0xf000) {
-    case W_10:
-	b &= 0x0fff;
-	n = 10;
-	goto putq;
-    case W_06:
-	// cannot complete the value
-	return -27;
-    case W_05:
-	// cannot complete the value
-	return -28;
-    case W_00:
-	// up to 5 bits to complete last character
-	if (q > 5)
-	    return -29;
-	// successful return
-	return v - v_start;
-    default:
-	// bad input
-	return -30;
-    }
-  putq:
+putq:
     QMake; RMake;
     // at most 17 left
     QMake; RMake;
@@ -453,7 +463,7 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
     QMake; RMake;
     // at most 3 left
     QMake; goto getr;
-  putr:
+putr:
     RInit;
     RMake;
     // at most 23 left
@@ -464,76 +474,34 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
     QMake; RMake;
     // at most 2 left
     QMake; goto getr;
-  getr:
-    w = *(unsigned short *) s;
-    s += 2;
-    b = word2bits[w];
-    if (b < 0x1000) {
-	w = *(unsigned short *) s;
-	unsigned bx = word2bits[w];
-	if (bx < 0x1000) {
-	    s += 2;
-	    b |= (bx << 12);
-	    n = 24;
-	    goto putr;
-	}
-	if (bx < 0x2000) {
-	    s += 2;
-	    bx &= 0x0fff;
-	    b |= (bx << 12);
-	    n = 23;
-	    goto putr;
-	}
-	n = 12;
-	goto putr;
-    }
-    if (b < 0x2000) {
-	b &= 0x0fff;
-	w = *(unsigned short *) s;
-	unsigned bx = word2bits[w];
-	if (bx < 0x1000) {
-	    s += 2;
-	    b |= (bx << 11);
-	    n = 23;
-	    goto putr;
-	}
-	n = 11;
-	goto putr;
-    }
-    switch (b & 0xf000) {
-    case W_10:
-	b &= 0x0fff;
-	n = 10;
-	goto putr;
-    case W_06:
-	b &= 0x0fff;
-	n = 6;
-	// XXX
-	RInit;
-	RMake;
-	// only zero bits left
-	if (b != 0)
-	    return -21;
-	// successful return
-	return v - v_start;
-    case W_05:
-	b &= 0x0fff;
-	n = 5;
-	// XXX
-	RInit;
-	RMake;
-	// only zero bits left
-	if (b != 0)
-	    return -22;
-	// successful return
-	return v - v_start;
-    case W_00:
-	// cannot complete the value
-	return -23;
-    default:
-	// bad input
-	return -24;
-    }
+
+    /* Handle end of input */
+put06q:
+put05q:
+    /* cannot complete the value */
+    return -27;
+put00q:
+    /* up to 5 trailing zero bits */
+    if (q > 5)
+	return -29;
+    /* successful return */
+    return v - v_start;
+put06r:
+    n = 6;
+    goto put01r;
+put05r:
+    n = 5;
+put01r:
+    RInit;
+    RMake;
+    /* only zero bits left */
+    if (b != 0)
+	return -21;
+    /* successful return */
+    return v - v_start;
+put00r:
+    /* cannot complete the value */
+    return -23;
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:
