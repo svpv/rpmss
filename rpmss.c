@@ -306,7 +306,6 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
     if (m < 0)
 	return m;
     *pbpp = bpp;
-    int left, vbits;
     // delta
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
@@ -423,38 +422,43 @@ getr:
     r |= (b << rfill); \
     rfill += n
 #define RMake \
-    left = rfill - m; \
-    if (left < 0) \
-	goto getr; \
-    r &= rmask; \
-    dv = (q << m) | r; \
-    v0++; \
-    if (v == 0 && v != v_start) \
-	return -10; \
-    v1 = v0 + dv; \
-    if (v1 < v0) \
-	return -11; \
-    if (v1 > vmax) \
-	return -12; \
-    *v++ = v1; \
-    v0 = v1; \
-    q = 0; \
-    b >>= n - left; \
-    n = left
+    { \
+	int left = rfill - m; \
+	if (left < 0) \
+	    goto getr; \
+	r &= rmask; \
+	dv = (q << m) | r; \
+	v0++; \
+	if (v == 0 && v != v_start) \
+	    return -10; \
+	v1 = v0 + dv; \
+	if (v1 < v0) \
+	    return -11; \
+	if (v1 > vmax) \
+	    return -12; \
+	*v++ = v1; \
+	v0 = v1; \
+	q = 0; \
+	b >>= n - left; \
+	n = left; \
+    }
 #define QMake \
-    if (b == 0) { \
-	q += n; \
-	goto getq; \
-    } \
-    vbits = __builtin_ffs(b); \
-    n -= vbits; \
-    b >>= vbits; \
-    q += vbits - 1; \
-    qmax -= q; \
-    if (qmax < 0) \
-	return -13; \
-    r = b; \
-    rfill = n
+    { \
+	if (b == 0) { \
+	    q += n; \
+	    goto getq; \
+	} \
+	int vbits = __builtin_ffs(b); \
+	n -= vbits; \
+	b >>= vbits; \
+	q += vbits - 1; \
+	qmax -= q; \
+	if (qmax < 0) \
+	    return -13; \
+	r = b; \
+	rfill = n; \
+    }
+
 putq:
     QMake; RMake;
     // at most 17 left
