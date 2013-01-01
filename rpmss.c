@@ -21,7 +21,7 @@ int encodeInit(const unsigned *v, int n, int bpp)
     if (n < 1)
 	return -1;
     // validate bpp
-    if (bpp < 8 || bpp > 32)
+    if (bpp < 7 || bpp > 32)
 	return -2;
     // last value must fit within bpp range
     if (bpp < 32 && v[n - 1] >> bpp)
@@ -32,11 +32,11 @@ int encodeInit(const unsigned *v, int n, int bpp)
     // average dv
     unsigned dv = (v[n - 1] - n + 1) / n;
     // select m
-    int m = 6;
-    unsigned range = 133;
+    int m = 5;
+    unsigned range = 66;
     while (dv > range) {
 	m++;
-	if (m == 31)
+	if (m == 30)
 	    break;
 	range = range * 2 + 1;
     }
@@ -71,8 +71,8 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	return m;
     // put parameters
     const char *s_start = s;
-    *s++ = bpp - 8 + 'a';
-    *s++ = m - 6 + 'a';
+    *s++ = bpp - 7 + 'a';
+    *s++ = m - 5 + 'A';
     // delta
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
@@ -171,11 +171,11 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 static
 int decodeInit(const char *s, int len, int *pbpp)
 {
-    int bpp = *s++ - 'a' + 8;
-    if (bpp < 8 || bpp > 32)
+    int bpp = *s++ - 'a' + 7;
+    if (bpp < 7 || bpp > 32)
 	return -1;
-    int m = *s++ - 'a' + 6;
-    if (m < 6 || m > 31)
+    int m = *s++ - 'A' + 5;
+    if (m < 5 || m > 30)
 	return -2;
     if (m >= bpp)
 	return -3;

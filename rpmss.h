@@ -33,7 +33,7 @@ extern "C" {
  * Estimate the size of a string buffer for encoding.
  * @param v		the values, sorted and unique
  * @param n		number of values
- * @param bpp		actual bits per value, 8..32
+ * @param bpp		actual bits per value, 7..32
  * @return		buffer size for encoding, < 0 on error
  */
 int rpmssEncodeSize(const unsigned *v, int n, int bpp);
@@ -42,7 +42,7 @@ int rpmssEncodeSize(const unsigned *v, int n, int bpp);
  * Encode a set of numeric values into alnum string.
  * @param v		the values, sorted and unique
  * @param n		number of values
- * @param bpp		actual bits per value, 8..32
+ * @param bpp		actual bits per value, 7..32
  * @param s		alnum output, null-terminated on success
  * @return		alnum string length, < 0 on error
  */

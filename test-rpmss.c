@@ -107,7 +107,7 @@ int rand_range(int min, int max)
 int main(int argc, char **argv)
 {
     int runs = 9999;
-    int min_bpp = 8;
+    int min_bpp = 7;
     int max_bpp = 32;
     int min_size = 1;
     int max_size = 99999;

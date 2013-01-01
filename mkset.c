@@ -108,7 +108,7 @@ int main(int argc, const char **argv)
 {
     assert(argc == 2);
     int bpp = atoi(argv[1]);
-    assert(bpp >= 8);
+    assert(bpp >= 7);
     assert(bpp <= 32);
     struct set *set = set_new();
     char *line = NULL;
