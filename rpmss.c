@@ -338,18 +338,18 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
 	case W_06:
 	    b &= 0x0fff;
 	    n = 6;
-	    goto putq;
+	    goto putQ;
 	case W_05:
 	    b &= 0x0fff;
 	    n = 5;
-	    goto putq;
+	    goto putQ;
 	default:
 	    // bad input
 	    return -20;
 	}
     }
 
-    /* Template for getq and getr coroutines */
+    /* Template for getQ and getR coroutines */
 #define Get(X) \
     { \
 	long w = *(unsigned short *) s; \
@@ -399,33 +399,35 @@ int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
 	    goto put ## X; \
 	case W_06: \
 	    b &= 0x0fff; \
-	    goto put06 ## X; \
+	    n = 6; \
+	    goto putlast ## X; \
 	case W_05: \
 	    b &= 0x0fff; \
-	    goto put05 ## X; \
+	    n = 5; \
+	    goto putlast ## X; \
 	case W_00: \
-	    goto put00 ## X; \
+	    goto puteol ## X; \
 	default: \
 	    /* bad input */ \
 	    return -21; \
 	} \
     }
 
-    /* Actually define getq and getr coroutines */
-getq:
-    Get(q);
-getr:
-    Get(r);
+    /* Actually define getQ and getR coroutines */
+getQ:
+    Get(Q);
+getR:
+    Get(R);
 
     /* golomb pieces */
-#define RInit \
+#define InitR \
     r |= (b << rfill); \
     rfill += n
-#define RMake \
+#define MakeR(getR) \
     { \
 	int left = rfill - m; \
 	if (left < 0) \
-	    goto getr; \
+	    goto getR; \
 	r &= rmask; \
 	dv = (q << m) | r; \
 	v0++; \
@@ -442,11 +444,11 @@ getr:
 	b >>= n - left; \
 	n = left; \
     }
-#define QMake \
+#define MakeQ(getQ) \
     { \
 	if (b == 0) { \
 	    q += n; \
-	    goto getq; \
+	    goto getQ; \
 	} \
 	int vbits = __builtin_ffs(b); \
 	n -= vbits; \
@@ -459,53 +461,56 @@ getr:
 	rfill = n; \
     }
 
-putq:
-    QMake; RMake;
-    // at most 17 left
-    QMake; RMake;
-    // at most 10 left
-    QMake; RMake;
-    // at most 3 left
-    QMake; goto getr;
-putr:
-    RInit;
-    RMake;
+putQ:
+    MakeQ(getQ); MakeR(getR);
+    // at most 18 left
+    MakeQ(getQ); MakeR(getR);
+    // at most 12 left
+    MakeQ(getQ); MakeR(getR);
+    // at most 6 left
+    MakeQ(getQ); MakeR(getR);
+    goto getQ;
+putR:
+    InitR;
+    MakeR(getR);
     // at most 23 left
-    QMake; RMake;
-    // at most 16 left
-    QMake; RMake;
-    // at most 9 left
-    QMake; RMake;
-    // at most 2 left
-    QMake; goto getr;
+    MakeQ(getQ); MakeR(getR);
+    // at most 17 left
+    MakeQ(getQ); MakeR(getR);
+    // at most 11 left
+    MakeQ(getQ); MakeR(getR);
+    // at most 5 left
+    MakeQ(getQ); goto getR;
 
     /* Handle end of input */
-put06q:
-put05q:
-    /* cannot complete the value */
-    return -27;
-put00q:
+putlastQ:
+    MakeQ(nomoreQ);
+    MakeR(nomoreR);
+    goto check;
+puteolQ:
     /* up to 5 trailing zero bits */
     if (q > 5)
-	return -29;
-    /* successful return */
-    return v - v_start;
-put06r:
-    n = 6;
-    goto put01r;
-put05r:
-    n = 5;
-put01r:
-    RInit;
-    RMake;
+	return -20;
+    goto check;
+putlastR:
+    InitR;
+    MakeR(getR);
     /* only zero bits left */
     if (b != 0)
 	return -21;
-    /* successful return */
-    return v - v_start;
-put00r:
+    goto check;
+puteolR:
     /* cannot complete the value */
+    return -22;
+nomoreQ:
     return -23;
+nomoreR:
+    return -24;
+
+    /* check before successful return */
+check:
+    return v - v_start;
+
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:
