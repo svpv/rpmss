@@ -1,0 +1,60 @@
+#!/bin/sh -efu
+
+provsym()
+{
+	readelf --wide --dyn-syms "$1" |
+	awk '+$1 && NF>=8 &&
+		# dl-lookup.c: /st_value
+		($2!="00000000" && $2!="0000000000000000" || $4=="TLS") &&
+		# dl-lookup.c: /st_shndx
+		($7!="UND") &&
+		# dl-lookup.c: /ALLOWED_STT
+		($4=="NOTYPE" || $4=="OBJECT" || $4 == "FUNC" || $4=="COMMON" || $4=="TLS" || $4=="IFUNC") &&
+		# dl-lookup.c: /hidden
+		($6=="DEFAULT" || $6=="PROTECTED") &&
+		# dl-lookup.c: /switch.*ST_BIND
+		($5=="GLOBAL" || $5=="WEAK" || $5 == "UNIQUE") &&
+		# Ignore special symbols found in each library:
+		($8!="__bss_start" && $8!="_edata" && $8!="_end" && $8!="_fini" && $8!="_init") {
+			sym = $8
+			# No symbol versioning yet.
+			ix = index(sym, "@")
+			if (ix > 1)
+				sym = substr(sym, 0, ix-1)
+			print sym
+		}' |
+	LC_ALL=C sort -u
+}
+
+remove_tmpdir()
+{
+       rm -rf -- "$tmpdir"
+       exit $1
+}
+
+trap 'exit 143' HUP INT QUIT PIPE TERM
+tmpdir=$(mktemp -dt "${0##*/}.XXXXXXXX")
+trap 'remove_tmpdir $?' EXIT
+
+bpp()
+{
+	provsym "$1" >$tmpdir/sym
+	sort -u -o $tmpdir/sym{,}
+	bzip2 <$tmpdir/sym >$tmpdir/sym.bz2
+	lzma <$tmpdir/sym >$tmpdir/sym.lzma
+	rm -f $tmpdir/sym.7z
+	7z a $tmpdir/sym.7z $tmpdir/sym -m0=PPMd &>/dev/null
+	n=$(wc -l <$tmpdir/sym)
+	[ $n -gt 0 ] || return 0
+	n0=$(wc -c <$tmpdir/sym)
+	n1=$(wc -c <$tmpdir/sym.bz2)
+	n2=$(wc -c <$tmpdir/sym.lzma)
+	n3=$(wc -c <$tmpdir/sym.7z)
+	echo "$1" $n $n0 $n1 $n2 $n3 |
+		awk '{printf("%s\t%d\t%2.2f\t%2.2f\t%2.2f\t%2.2f\n",
+			$1, $2, $3/$2*8, $4/$2*8, $5/$2*8, $6/$2*8)}'
+}
+
+for f; do
+	bpp "$f"
+done
