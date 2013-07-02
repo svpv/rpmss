@@ -22,13 +22,13 @@ void test_set(unsigned *v0, int n0, int bpp0, int print)
     if (print)
 	printf("set:%s\n", s);
     // decode
-    int v1size = rpmssDecodeSize(s, len);
+    int bpp1;
+    int v1size = rpmssDecodeInit2(s, len, &bpp1);
     assert(v1size >= n0);
     unsigned *v1 = malloc(v1size * sizeof(unsigned));
-    int bpp1;
-    int n1 = rpmssDecode(s, len, v1, &bpp1);
+    int n1 = rpmssDecode(s, v1);
     assert(n1 > 0);
-#if 1
+#if 0
     rpmssDecode(s, len, v1, &bpp1);
     rpmssDecode(s, len, v1, &bpp1);
     rpmssDecode(s, len, v1, &bpp1);
