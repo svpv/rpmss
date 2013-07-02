@@ -1,8 +1,84 @@
 #include <assert.h>
+#include <string.h>
+#include <stdlib.h>
+#include "rpmss.h"
 
+static void *xmalloc(size_t n) {
+    return malloc(n);
+}
+
+/* Number of trailing sentinels in decoded Provides */
 #define SENTINELS 8
-#define STACK_PROV_SIZE 256
-#define REQ_STACK_SIZE 1024
+
+static
+int cache_decode(const char *str, const unsigned **pv)
+{
+    struct cache_ent {
+	char *str;
+	int len;
+	int n;
+	unsigned v[];
+    };
+#define CACHE_SIZE 256
+#define PIVOT_SIZE 240
+    static int hc;
+    static unsigned hv[CACHE_SIZE];
+    static struct cache_ent *ev[CACHE_SIZE];
+    // look up in the cache
+    int i;
+    unsigned *hp;
+    struct cache_ent *ent;
+    unsigned hash = str[0] | (str[2] << 8) | (str[3] << 16);
+    for (hp = hv; hp < hv + hc; hp++) {
+	if (hash == *hp) {
+	    i = hp - hv;
+	    ent = ev[i];
+	    if (memcmp(str, ent->str, ent->len + 1) == 0) {
+		// hit, move to front
+		if (i) {
+		    memmove(hv + 1, hv, i * sizeof(hv[0]));
+		    memmove(ev + 1, ev, i * sizeof(ev[0]));
+		    hv[0] = hash;
+		    ev[0] = ent;
+		}
+		*pv = ent->v;
+		return ent->n;
+	    }
+	}
+    }
+    // decode
+    int len = strlen(str);
+    int bpp;
+    int n = rpmssDecodeInit2(str, len, &bpp);
+#define SENTINELS 8
+    ent = malloc(sizeof(*ent) + len + 1 + (n + SENTINELS) * sizeof(unsigned));
+    assert(ent);
+    n = ent->n = rpmssDecode(str, ent->v);
+    if (n <= 0) {
+	free(ent);
+	return n;
+    }
+    for (i = 0; i < SENTINELS; i++)
+	ent->v[n + i] = ~0u;
+    ent->str = (char *)(ent->v + n + SENTINELS);
+    memcpy(ent->str, str, len + 1);
+    ent->len = len;
+    // insert
+    if (hc < CACHE_SIZE)
+	i = hc++;
+    else {
+	// free last entry
+	free(ev[CACHE_SIZE - 1]);
+	// position at midpoint
+	i = PIVOT_SIZE;
+	memmove(hv + i + 1, hv + i, (CACHE_SIZE - i - 1) * sizeof(hv[0]));
+	memmove(ev + i + 1, ev + i, (CACHE_SIZE - i - 1) * sizeof(ev[0]));
+    }
+    hv[i] = hash;
+    ev[i] = ent;
+    *pv = ent->v;
+    return n;
+}
 
 static void cache_lock(void)
 {
@@ -12,7 +88,7 @@ static void cache_unlock(void)
 {
 }
 
-// Reduce a set of (bpp + 1) values to a set of bpp values.
+/* Reduce a set of (bpp + 1) values to a set of bpp values. */
 static int downsample(const unsigned *v, int n, unsigned *w, int bpp)
 {
     unsigned mask = (1 << bpp) - 1;
@@ -164,77 +240,119 @@ static int setcmp(const unsigned *v1, int n1, const unsigned *v2, int n2)
 /* Decode small Provides version without caching */
 #define PROV_STACK_SIZE 256
 
-/* Stage 2: decode set1 (Provides) */
-static int setcmp2(const char *s1, int n1, int bpp1, int m1,
+/* Stage 2a: downsample set1 */
+static int setcmp2a(const unsigned *v1o, unsigned *v1, unsigned *vx,
+	int n1, int bpp1,
 	const unsigned *v2, int n2, int bpp2)
 {
-    if (n1 > STACK_PROV_SIZE) {
-	// decode s1 using cache
-	const unsigned *v1;
+    bpp1--;
+    n1 = downsample(v1o, n1, v1, bpp1);
+    while (bpp1 > bpp2) {
+	bpp1--;
+	n1 = downsample(v1, n1, vx, bpp1);
+	unsigned *tmp = v1;
+	v1 = vx;
+	vx = tmp;
+    }
+    for (int i = 0; i < SENTINELS; i++)
+	v1[n1 + i] = ~0u;
+    return setcmp(v1, n1, v2, n2);
+}
+
+/* Stage 2: decode set1 (Provides) */
+static int setcmp2(const char *s1, int n1, int bpp1,
+	const unsigned *v2, int n2, int bpp2)
+{
+    /* need to downsample */
+    if (bpp1 > bpp2) {
+	/* decode using cache */
+	if (n1 > PROV_STACK_SIZE) {
+	    cache_lock();
+	    const unsigned *v1o;
+	    n1 = cache_decode(s1, &v1o);
+	    if (n1 <= 0) {
+		cache_unlock();
+		return -11;
+	    }
+	    unsigned *v1 = xmalloc(n1 * 2 + SENTINELS);
+	    int cmp = setcmp2a(v1o, v1, v1 + n1, n1, bpp1, v2, n2, bpp2);
+	    cache_unlock();
+	    free(v1);
+	    return cmp;
+	}
+	/* decode on the stack */
+	unsigned v1[n1 * 2 + SENTINELS];
+	n1 = rpmssDecode(s1, v1);
+	if (n1 <= 0)
+	    return -11;
+	return setcmp2a(v1, v1 + n1, v1, n1, bpp1, v2, n2, bpp2);
+    }
+    /* will not downsample */
+    if (n1 > PROV_STACK_SIZE) {
 	cache_lock();
-	n1 = cache_decode(&v1);
-	if (n1 < 0) {
+	const unsigned *v1;
+	n1 = cache_decode(s1, &v1);
+	if (n1 <= 0) {
 	    cache_unlock();
 	    return -11;
 	}
-	int cmp = setcmp3(v1, n1, v2, n2);
+	int cmp = setcmp(v1, n1, v2, n2);
 	cache_unlock();
-	free(v2);
 	return cmp;
     }
     else {
-	// decode s1 on the stack
 	unsigned v1[n1 + SENTINELS];
-	n1 = decode(v1);
-	add_sentinels(v1, n1);
-	int cmp = setcmp(v1, n1, v2, n2);
-	free(v2);
-	return cmp;
+	n1 = rpmssDecode(s1, v1);
+	if (n1 <= 0)
+	    return -11;
+	for (int i = 0; i < SENTINELS; i++)
+	    v1[n1 + i] = ~0u;
+	return setcmp(v1, n1, v2, n2);
     }
 }
 
 /* Stage 1a: decode set2 with downsampling */
-static int setcmp1a(const char *s1, int n1, int bpp1, int m1,
-	const char *s2, int n2, int bpp2, int m2, unsigned *v2)
+static int setcmp1a(const char *s1, int n1, int bpp1,
+	const char *s2, int n2, int bpp2, unsigned *v2)
 {
-    n2 = rpmssDecode(s2, bpp2, m2, v2);
+    n2 = rpmssDecode(s2, v2);
     if (n2 <= 0)
 	return -12;
     unsigned *vx = v2 + n2;
     do {
-	n2 = downsample(v2, n2, vx, bpp2);
 	bpp2--;
-	unsigned *vtmp = v2;
+	n2 = downsample(v2, n2, vx, bpp2);
+	unsigned *tmp = v2;
 	v2 = vx;
-	vx = vtmp;
+	vx = tmp;
     } while (bpp2 > bpp1);
-    return setcmp2(s1, n1, bpp1, m1, v2, n2, bpp2);
+    return setcmp2(s1, n1, bpp1, v2, n2, bpp2);
 }
 
 /* Limit stack memory usage */
 #define REQ_STACK_SIZE 1024
 
 /* Stage 1: decode set2 (Requires) */
-static int setcmp1(const char *s1, int n1, int bpp1, int m1,
-	const char *s2, int n2, int bpp2, int m2)
+static int setcmp1(const char *s1, int n1, int bpp1,
+	const char *s2, int n2, int bpp2)
 {
     /* need to downsample */
     if (bpp2 > bpp1) {
 	/* decode using malloc */
 	if (n2 > REQ_STACK_SIZE / 2) {
 	    unsigned *v2 = xmalloc(n2 * 2);
-	    int cmp = setcmp1a(s1, n1, bpp1, m1, s2, n2, bpp2, m2, v2);
+	    int cmp = setcmp1a(s1, n1, bpp1, s2, n2, bpp2, v2);
 	    free(v2);
 	    return cmp;
 	}
 	/* decode on the stack */
 	unsigned v2[n2 * 2];
-	return setcmp1a(s1, n1, bpp1, m1, s2, n2, bpp2, m2, v2);
+	return setcmp1a(s1, n1, bpp1, s2, n2, bpp2, v2);
     }
     /* will not downsample */
     if (n2 > REQ_STACK_SIZE) {
 	unsigned *v2 = xmalloc(n2);
-	n2 = rpmssDecode(s2, bpp2, m2, v2);
+	n2 = rpmssDecode(s2, v2);
 	if (n2 <= 0) {
 	    free(v2);
 	    return -12;
@@ -244,24 +362,25 @@ static int setcmp1(const char *s1, int n1, int bpp1, int m1,
 	return cmp;
     }
     unsigned v2[n2];
-    n2 = rpmssDecode(s2, bpp2, m2, v2);
+    n2 = rpmssDecode(s2, v2);
     if (n2 <= 0)
 	return -12;
-    return setcmp2(s1, n1, bpp1, m1, v2, n2, bpp2);
+    return setcmp2(s1, n1, bpp1, v2, n2, bpp2);
 }
 
 int rpmsetcmp(const char *s1, const char *s2)
 {
     // initialize decoding
-    int bpp1, bpp2, m1, m2;
-    int n1 = rpmssDecodeInit(s1, &bpp1, &m1);
+    int bpp1;
+    int n1 = rpmssDecodeInit1(s1, &bpp1);
     if (n1 < 0)
 	return -11;
-    int n2 = rpmssDecodeInit(s2, &bpp2, &m2);
+    int bpp2;
+    int n2 = rpmssDecodeInit1(s2, &bpp2);
     if (n2 < 0)
 	return -12;
     // run comparison stages
-    return setcmp1(s1, n1, bpp1, m1, s2, bpp2, n2, m2);
+    return setcmp1(s1, n1, bpp1, s2, bpp2, n2);
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:
