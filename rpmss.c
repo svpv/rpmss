@@ -17,21 +17,26 @@
 static
 int encodeInit(const unsigned *v, int n, int bpp)
 {
-    // no empty sets
+    /* No empty sets */
     if (n < 1)
 	return -1;
-    // validate bpp
+
+    /* Validate bpp */
     if (bpp < 7 || bpp > 32)
 	return -2;
-    // last value must fit within bpp range
+
+    /* Last value must fit within bpp range */
     if (bpp < 32 && v[n - 1] >> bpp)
 	return -3;
-    // last value must be consistent with the sequence
+
+    /* Last value must be consistent with the sequence */
     if (v[n - 1] < (unsigned) n - 1)
 	return -4;
-    // average dv
+
+    /* Average delta */
     unsigned dv = (v[n - 1] - n + 1) / n;
-    // select m
+
+    /* Select m */
     int m = 5;
     unsigned range = 66;
     while (dv > range) {
@@ -40,6 +45,7 @@ int encodeInit(const unsigned *v, int n, int bpp)
 	    break;
 	range = range * 2 + 1;
     }
+
     assert(m < bpp);
     return m;
 }
@@ -49,13 +55,20 @@ int rpmssEncodeSize(const unsigned *v, int n, int bpp)
     int m = encodeInit(v, n, bpp);
     if (m < 0)
 	return m;
-    // need at least (m + 1) bits per value
+
+    /* Need at least (m + 1) bits per value */
     int bits1 = n * (m + 1);
-    // the second term is much tricker: assuming that remainders are small,
-    // q deltas must have enough room to cover the whole range
+
+    /*
+     * The second term is much tricker: assuming that remainders are small,
+     * q deltas must have enough room to cover the whole range.
+     */
     int bits2 = (v[n - 1] - n + 1) >> m;
-    // five bits can make a character, as well as the remaining bits; also
-    // need two leading characters, and the string must be null-terminated
+
+    /*
+     * Five bits can make a character, as well as the remaining bits; also
+     * need two leading characters, and the string must be null-terminated.
+     */
     return (bits1 + bits2) / 5 + 4;
 }
 
@@ -69,31 +82,35 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
     int m = encodeInit(v, n, bpp);
     if (m < 0)
 	return m;
-    // put parameters
+
+    /* Put bpp and m */
     const char *s_start = s;
     *s++ = bpp - 7 + 'a';
     *s++ = m - 5 + 'A';
-    // delta
+
+    /* Delta */
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
     unsigned vmax = v[n - 1];
     const unsigned *v_start = v;
     const unsigned *v_end = v + n;
-    // golomb
+
+    /* Golomb */
     int q;
     unsigned r;
     unsigned rmask = (1u << m) - 1;
-    // pending bits
+
+    /* Pending bits */
     unsigned b = 0;
-    // reuse n for pending bit count
+    /* Reuse n for pending bit count */
     n = 0;
-    // at the start of each iteration, either (n < 5), or (n == 5) but
-    // the 5 pending bits do not form irregular case; this allows some
-    // shortcuts when putting q: for (n >= 6), only regular cases are
-    // possible - either by the starting condition, or by the virtue
-    // of preceding zero bits (since irregular cases need 5th bit set)
+
+    /*
+     * Loop invariant: either (n < 5), or (n == 5) but the 5 pending bits
+     * do not form irregular case - i.e. nothing to flush.
+     */
     do {
-	// make dv
+	/* Make delta */
 	v0++;
 	if (v0 == 0 && v != v_start)
 	    return -10;
@@ -104,27 +121,40 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	    return -12;
 	dv = v1 - v0;
 	v0 = v1;
-	// put q
+
+	/* Put q */
 	q = dv >> m;
+	/* Add zero bits */
 	n += q;
 	if (n >= 6) {
-	    // only regular case is possible
+	    /*
+	     * By the loop invariant, only regular cases are possible.
+	     * (Note that irregular cases need the 5th bit set.)
+	     */
 	    *s++ = bits2char[b];
 	    n -= 6;
 	    b = 0;
-	    // only zeroes left
+	    /* Only zeroes left */
 	    while (n >= 6) {
 		*s++ = '0';
 		n -= 6;
 	    }
 	}
-	// impossible to make irregular 6 bits
-	b |= (1 << n);
+	/*
+	 * Add stop bit.  We then have at least 1 bit and at most 6 bits.
+	 * If we do have 6 bits, it isn't possible that the lower 5 bits
+	 * form an irregular case.  Therefore, with the next character
+	 * flushed, no q bits will be left.
+	 */
+	b |= (1u << n);
 	n++;
-	// put r
+
+	/* Put r */
 	r = dv & rmask;
 	b |= (r << n);
 	n += m;
+
+	/* Got at least 6 bits, ready to flush */
 	do {
 	    switch (b & 31) {
 	    case 30:
@@ -140,13 +170,13 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 		n -= 6;
 		break;
 	    }
-	    // first run consumes non-r part completely
+	    /* First run consumes non-r part completely, see above */
 	    b = r >> (m - n);
-	}
-	while (n >= 6);
-	// flush pending irregular case
+	} while (n >= 6);
+
+	/* Flush pending irregular case */
 	if (n == 5) {
-	    switch (b & 31) {
+	    switch (b) {
 	    case 30:
 		*s++ = 'U';
 		n = 0;
@@ -159,9 +189,12 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 		break;
 	    }
 	}
-    }
-    while (v < v_end);
-    // only regular case is possible
+    } while (v < v_end);
+
+    /*
+     * Last character with high bits defaulting to zero.
+     * Only regular case is possible.
+     */
     if (n)
 	*s++ = bits2char[b];
     *s = '\0';
