@@ -49,20 +49,22 @@ int rpmssEncodeSize(const unsigned *v, int n, int bpp);
 int rpmssEncode(const unsigned *v, int n, int bpp, char *s);
 
 /** \ingroup rpmss
- * 
+ * Tetnantive probe must be performed before actual decoding.
  * @param s		alnum string to decode, null-terminated
  * @param len		alnum string length
+ * @param pbpp		original bits per value
  * @return		number of values (upper size), < 0 on error
  */
-int rpmssDecodeSize(const char *s, int len);
+int rpmssDecodeInit1(const char *s, int *pbpp);
+int rpmssDecodeInit2(const char *s, int len, int *pbpp);
 
 /** \ingroup rpmss
- * 
+ * Decode.
  * @param s		alnum string to decode, null-terminated
- * @param len		alnum string length
+ * @param v		decoded values, sorted and unique
  * @return		number of values, < 0 on error
  */
-int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp);
+int rpmssDecode(const char *s, unsigned *v);
 
 #ifdef __cplusplus
 }

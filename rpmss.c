@@ -168,8 +168,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
     return s - s_start;
 }
 
-static
-int decodeInit(const char *s, int len, int *pbpp)
+static int decodeInit(const char *s, int *pbpp)
 {
     int bpp = *s++ - 'a' + 7;
     if (bpp < 7 || bpp > 32)
@@ -181,24 +180,33 @@ int decodeInit(const char *s, int len, int *pbpp)
 	return -3;
     if (*s == '\0')
 	return -4;
-    if (len < 4)
-	return -5;
-    //if (s[len] != '\0')
-	//return -6;
     *pbpp = bpp;
     return m;
 }
 
-int rpmssDecodeSize(const char *s, int len)
+int rpmssDecodeInit1(const char *s, int *pbpp)
 {
-    int bpp;
-    int m = decodeInit(s, len, &bpp);
+    int m = decodeInit(s, pbpp);
     if (m < 0)
 	return m;
-    // each character will fill at most 6 bits
+    return 1 << (*pbpp - m);
+}
+
+int rpmssDecodeInit2(const char *s, int len, int *pbpp)
+{
+    int m = decodeInit(s, pbpp);
+    if (m < 0)
+	return m;
+    /* XXX validate len */
+    int n1 = 1 << (*pbpp - m);
+    /* Each character will fill at most 6 bits */
     int bits = (len - 2) * 6;
-    // each (m + 1) bits can make a value
-    return bits / (m + 1);
+    /* Each (m + 1) bits can make a value */
+    int n2 = bits / (m + 1);
+    /* Whichever smaller */
+    if (n2 < n1)
+	return n2;
+    return n1;
 }
 
 // Word types (when two bytes from base62 string cast to unsigned short).
@@ -299,13 +307,12 @@ const unsigned short word2bits[65536] = {
     R1x256(W_00, 0, '\0', '\0', '\0', '\0'),
 };
 
-int rpmssDecode(const char *s, int len, unsigned *v, int *pbpp)
+int rpmssDecode(const char *s, unsigned *v)
 {
     int bpp;
-    int m = decodeInit(s, len, &bpp);
+    int m = decodeInit(s, &bpp);
     if (m < 0)
 	return m;
-    *pbpp = bpp;
     // delta
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
