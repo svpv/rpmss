@@ -134,7 +134,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	}
 	/*
 	 * Add stop bit.  We then have at least 1 bit and at most 6 bits.
-	 * If we do have 6 bits, it isn't possible that the lower 5 bits
+	 * If we do have 6 bits, it is not possible that the lower 5 bits
 	 * form an irregular case.  Therefore, with the next character
 	 * flushed, no q bits will be left.
 	 */
