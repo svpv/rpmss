@@ -89,10 +89,8 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
     *s++ = m - 5 + 'A';
 
     /* Delta */
-    unsigned v0 = (unsigned) -1;
-    unsigned v1, dv;
+    unsigned v0, v1, dv;
     unsigned vmax = v[n - 1];
-    const unsigned *v_start = v;
     const unsigned *v_end = v + n;
 
     /* Golomb */
@@ -105,23 +103,17 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
     /* Reuse n for pending bit count */
     n = 0;
 
+    /* Make initial delta */
+    v0 = *v++;
+    if (v0 > vmax)
+	return -10;
+    dv = v0;
+
     /*
      * Loop invariant: either (n < 5), or (n == 5) but the 5 pending bits
      * do not form irregular case - i.e. nothing to flush.
      */
-    do {
-	/* Make delta */
-	v0++;
-	if (v0 == 0 && v != v_start)
-	    return -10;
-	v1 = *v++;
-	if (v1 < v0)
-	    return -11;
-	if (v1 > vmax)
-	    return -12;
-	dv = v1 - v0;
-	v0 = v1;
-
+    while (1) {
 	/* Put q */
 	q = dv >> m;
 	/* Add zero bits */
@@ -189,7 +181,20 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 		break;
 	    }
 	}
-    } while (v < v_end);
+
+	/* Loop control */
+	if (v == v_end)
+	    break;
+
+	/* Make next delta */
+	v1 = *v++;
+	if (v1 <= v0)
+	    return -11;
+	if (v1 > vmax)
+	    return -12;
+	dv = v1 - v0 - 1;
+	v0 = v1;
+    }
 
     /*
      * Last character with high bits defaulting to zero.
