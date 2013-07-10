@@ -20,31 +20,41 @@ int cache_decode(const char *str, const unsigned **pv)
 	unsigned v[];
     };
 #define CACHE_SIZE 256
-#define PIVOT_SIZE 240
+#define PIVOT_SIZE 232
     static int hc;
-    static unsigned hv[CACHE_SIZE];
+    static unsigned hv[CACHE_SIZE + 1];
     static struct cache_ent *ev[CACHE_SIZE];
     // look up in the cache
     int i;
-    unsigned *hp;
     struct cache_ent *ent;
     unsigned hash = str[0] | (str[2] << 8) | (str[3] << 16);
-    for (hp = hv; hp < hv + hc; hp++) {
-	if (hash == *hp) {
-	    i = hp - hv;
-	    ent = ev[i];
-	    if (memcmp(str, ent->str, ent->len + 1) == 0) {
-		// hit, move to front
-		if (i) {
-		    memmove(hv + 1, hv, i * sizeof(hv[0]));
-		    memmove(ev + 1, ev, i * sizeof(ev[0]));
-		    hv[0] = hash;
-		    ev[0] = ent;
-		}
-		*pv = ent->v;
-		return ent->n;
-	    }
+    unsigned *hp = hv;
+    // Install sentinel
+    hp[hc] = hash;
+    while (1) {
+	// Find hash
+	while (*hp != hash)
+	    hp++;
+	i = hp - hv;
+	// Found sentinel?
+	if (i == hc)
+	    break;
+	// Found entry
+	ent = ev[i];
+	// Recheck entry
+	if (memcmp(str, ent->str, ent->len + 1)) {
+	    hp++;
+	    continue;
 	}
+	// Hit, move to front
+	if (i) {
+	    memmove(hv + 1, hv, i * sizeof(hv[0]));
+	    memmove(ev + 1, ev, i * sizeof(ev[0]));
+	    hv[0] = hash;
+	    ev[0] = ent;
+	}
+	*pv = ent->v;
+	return ent->n;
     }
     // decode
     int len = strlen(str);

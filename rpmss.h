@@ -44,7 +44,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s);
 
 /** \ingroup rpmss
  * Initialize decoding.  The second routine requires the string length
- * to be known in adavnce and provides tighter size estimates.
+ * to be known in adavnce while providing tighter size estimates.
  * @param s		alnum string to decode, null-terminated
  * @param len		alnum string length
  * @param pbpp		original bits per value

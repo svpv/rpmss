@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <assert.h>
 #include "rpmss.h"
 
@@ -198,7 +197,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 
     /*
      * Last character with high bits defaulting to zero.
-     * Only regular case is possible.
+     * Only regular cases are possible.
      */
     if (n)
 	*s++ = bits2char[b];
