@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "rpmss.h"
 #include "rpmset.h"
 
 // Internally, "struct rpmset" is just a bag of strings and their hash values.

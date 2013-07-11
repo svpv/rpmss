@@ -13,8 +13,7 @@
  *    A Secure, Lossless, and Compressed Base62 Encoding
  */
 
-static
-int encodeInit(const unsigned *v, int n, int bpp)
+static int encodeInit(const unsigned *v, int n, int bpp)
 {
     /* No empty sets */
     if (n < 1)
@@ -37,14 +36,37 @@ int encodeInit(const unsigned *v, int n, int bpp)
 
     /* Select m */
     int m = 5;
-    unsigned range = 66;
-    while (dv > range) {
-	m++;
-	if (m == 30)
-	    break;
-	range = range * 2 + 1;
+    if (dv < 32) {
+	/*
+	 * It is possible that they try to encode too many values using
+	 * too small bpp range, which will not only result in suboptimal
+	 * encoding, but also can break estmation of n based on bpp and m.
+	 */
+	if (n >= (1 << (bpp - m)))
+	    return -5;
+    }
+    else {
+	/*
+	 * When dv > 66 > 2^6, switch to use m = 6, and so on.
+	 * Generally dv > 2^m.
+	 */
+	unsigned range = 66;
+	while (dv > range) {
+	    m++;
+	    if (m == 30)
+		break;
+	    range = range * 2 + 1;
+	}
     }
 
+    /*
+     * By construction, 2^m < dv < 2^{bpp}/n, which implies n < 2^{bpp-m}.
+     * When bpp and m are known, we can use this to estimate maximum n.
+     * Also, note that the sum of n deltas cannot overflow bpp range.
+     */
+    assert(n < (1 << (bpp - m)));
+
+    /* This also implies that m < bpp */
     assert(m < bpp);
     return m;
 }
@@ -226,7 +248,7 @@ int rpmssDecodeInit1(const char *s, int *pbpp)
     int m = decodeInit(s, pbpp);
     if (m < 0)
 	return m;
-    return 1 << (*pbpp - m);
+    return (1 << (*pbpp - m)) - 1;
 }
 
 int rpmssDecodeInit2(const char *s, int len, int *pbpp)
@@ -235,7 +257,7 @@ int rpmssDecodeInit2(const char *s, int len, int *pbpp)
     if (m < 0)
 	return m;
     /* XXX validate len */
-    int n1 = 1 << (*pbpp - m);
+    int n1 = (1 << (*pbpp - m)) - 1;
     /* Each character will fill at most 6 bits */
     int bits = (len - 2) * 6;
     /* Each (m + 1) bits can make a value */

@@ -10,6 +10,9 @@ void test_set(unsigned *v0, int n0, int bpp0, int print)
 {
     // encode
     int strsize = rpmssEncodeSize(v0, n0, bpp0);
+    // too many values with too small bpp range
+    if (strsize == -5)
+	return;
     assert(strsize > 0);
     // check overruns
     char *sbuf = malloc(strsize + 1024);

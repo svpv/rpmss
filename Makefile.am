@@ -1,14 +1,18 @@
-AM_CFLAGS = -Wall -Wextra -D_GNU_SOURCE
+AM_CFLAGS = -Wall -Wextra -Werror -D_GNU_SOURCE
 
-lib_LTLIBRARIES = librpmss.la
-librpmss_la_SOURCES = rpmss.c rpmset.c rpmsetcmp.c
+lib_LTLIBRARIES = librpmss.la librpmset.la librpmsetcmp.la
+librpmss_la_SOURCES = rpmss.c
+librpmss_la_CFLAGS = $(AM_CFLAGS) -Wno-override-init
+librpmset_la_SOURCES = rpmset.c
+librpmsetcmp_la_SOURCES = rpmsetcmp.c
 
 bin_PROGRAMS = mkset setcmp test-rpmss
 mkset_SOURCES = mkset.c
-mkset_LDADD = librpmss.la
+mkset_LDADD = librpmset.la librpmss.la
 
 setcmp_SOURCES = setcmp.c
-setcmp_LDADD = librpmss.la
+setcmp_LDADD = librpmsetcmp.la librpmss.la
+setcmp_CFLAGS = $(AM_CFLAGS) -Wno-error=format
 
 test_rpmss_SOURCES = test-rpmss.c
 test_rpmss_LDADD = librpmss.la
