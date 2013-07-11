@@ -52,8 +52,8 @@ void test_set(unsigned *v0, int n0, int bpp0, int print)
 static
 void sortv(int c, unsigned *v)
 {
-#define cmp(a, b) ((*a) < (*b))
-    QSORT(unsigned, v, c, cmp);
+#define LT(a, b) ((*a) < (*b))
+    QSORT(unsigned, v, c, LT);
 }
 
 static

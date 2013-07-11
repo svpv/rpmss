@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "qsort.h"
 #include "rpmss.h"
 #include "rpmset.h"
 
@@ -61,17 +62,8 @@ char *rpmsetFini(struct rpmset *set, int bpp)
     for (i = 0; i < set->c; i++)
 	set->sv[i].v = hash(set->sv[i].s) & mask;
     // sort by hash value
-    int cmp(const void *arg1, const void *arg2)
-    {
-	struct sv *sv1 = (struct sv *) arg1;
-	struct sv *sv2 = (struct sv *) arg2;
-	if (sv1->v > sv2->v)
-	    return 1;
-	if (sv2->v > sv1->v)
-	    return -1;
-	return 0;
-    }
-    qsort(set->sv, set->c, sizeof *set->sv, cmp);
+#define LT(sv1, sv2) (sv1->v < sv2->v)
+    QSORT(struct sv, set->sv, set->c, LT);
     // warn on hash collisions
     for (i = 0; i < set->c - 1; i++) {
 	if (set->sv[i].v != set->sv[i+1].v)
