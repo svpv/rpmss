@@ -33,8 +33,14 @@ int cache_decode(const char *str, const unsigned **pv)
     hp[hc] = hash;
     while (1) {
 	// Find hash
-	while (*hp != hash)
-	    hp++;
+	while (1) {
+	    // Cf. Quicker sequential search in [Knuth, Vol.3, p.398]
+	    if (hp[0] == hash) break;
+	    if (hp[1] == hash) { hp += 1; break; }
+	    if (hp[2] == hash) { hp += 2; break; }
+	    if (hp[3] == hash) { hp += 3; break; }
+	    hp += 4;
+	}
 	i = hp - hv;
 	// Found sentinel?
 	if (i == hc)
