@@ -27,8 +27,9 @@ int cache_decode(const char *str, const unsigned **pv)
     // look up in the cache
     int i;
     struct cache_ent *ent;
-    unsigned hash = str[0] | (str[2] << 8) | (str[3] << 16);
     unsigned *hp = hv;
+    unsigned hash;
+    memcpy(&hash, str, 4);
     // Install sentinel
     hp[hc] = hash;
     while (1) {
