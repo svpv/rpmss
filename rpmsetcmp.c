@@ -247,7 +247,7 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
     unsigned *hv = c->hv;
     struct cache_ent **ev = c->ev;
     unsigned hash;
-    memcpy(&hash, str, 4);
+    memcpy(&hash, str, sizeof hash);
     // Install sentinel
     hv[c->hc] = hash;
     while (1) {
@@ -265,17 +265,17 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 	// Found sentinel?
 	if (i == c->hc)
 	    break;
-	// Found entry
+	// Found an entry
 	ent = ev[i];
-	// Recheck entry
+	// Recheck the entry
 	if (memcmp(str, ent->str, ent->len + 1)) {
 	    hp++;
 	    continue;
 	}
 	// Hit, move to front
 	if (i) {
-	    memmove(hv + 1, hv, i * sizeof(hv[0]));
-	    memmove(ev + 1, ev, i * sizeof(ev[0]));
+	    memmove(hv + 1, hv, i * sizeof hv[0]);
+	    memmove(ev + 1, ev, i * sizeof ev[0]);
 	    hv[0] = hash;
 	    ev[0] = ent;
 	}
@@ -304,8 +304,8 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 	free(ev[CACHE_SIZE - 1]);
 	// position at midpoint
 	i = PIVOT_SIZE;
-	memmove(hv + i + 1, hv + i, (CACHE_SIZE - i - 1) * sizeof(hv[0]));
-	memmove(ev + i + 1, ev + i, (CACHE_SIZE - i - 1) * sizeof(ev[0]));
+	memmove(hv + i + 1, hv + i, (CACHE_SIZE - i - 1) * sizeof hv[0]);
+	memmove(ev + i + 1, ev + i, (CACHE_SIZE - i - 1) * sizeof ev[0]);
     }
     hv[i] = hash;
     ev[i] = ent;
@@ -347,9 +347,8 @@ static int setcmp2(const char *s1, int n1, int bpp1,
 	if (n1 > PROV_STACK_SIZE) {
 	    const unsigned *v1o;
 	    n1 = cache_decode(&cache, s1, &v1o);
-	    if (n1 <= 0) {
+	    if (n1 <= 0)
 		return -11;
-	    }
 	    unsigned *v1 = xmalloc(n1 * 2 + SENTINELS);
 	    int cmp = setcmp2a(v1o, v1, v1 + n1, n1, bpp1, v2, n2, bpp2);
 	    free(v1);
@@ -366,9 +365,8 @@ static int setcmp2(const char *s1, int n1, int bpp1,
     if (n1 > PROV_STACK_SIZE) {
 	const unsigned *v1;
 	n1 = cache_decode(&cache, s1, &v1);
-	if (n1 <= 0) {
+	if (n1 <= 0)
 	    return -11;
-	}
 	int cmp = setcmp(v1, n1, v2, n2);
 	return cmp;
     }
