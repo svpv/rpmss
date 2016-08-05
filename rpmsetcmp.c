@@ -201,11 +201,16 @@ static int downsample1(const unsigned *v, int n, unsigned *w, int bpp)
     return w - w_start;
 }
 
+/* Cache entry holds the decoded set v[n] for the given set-string str.
+ * Each entry is allocated in a single malloc chunk. */
 struct cache_ent {
-    char *str;
     int len;
     int n;
-    unsigned v[];
+    char str[];
+    /* After null-terminated str[], there goes v[n], properly aligned.
+     * Provide some macros to deal with str[] and access v[]. */
+#define ENT_STRSIZE(len) ((len + sizeof(unsigned)) & ~sizeof(unsigned))
+#define ENT_V(ent, len) ((unsigned *)(ent->str + ENT_STRSIZE(len)))
 };
 
 /* The cache of this size (about 256 entries) can provide
@@ -279,23 +284,24 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 	    hv[0] = hash;
 	    ev[0] = ent;
 	}
-	*pv = ent->v;
+	*pv = ENT_V(ent, ent->len);
 	return ent->n;
     }
     // decode
     int len = strlen(str);
     int bpp;
     int n = rpmssDecodeInit2(str, len, &bpp);
-    ent = xmalloc(sizeof(*ent) + len + 1 + (n + SENTINELS) * sizeof(unsigned));
-    n = ent->n = rpmssDecode(str, ent->v);
+    ent = xmalloc(sizeof(*ent) + ENT_STRSIZE(len) + (n + SENTINELS) * sizeof(unsigned));
+    unsigned *v = ENT_V(ent, len);
+    n = rpmssDecode(str, v);
     if (n <= 0) {
 	free(ent);
 	return n;
     }
-    install_sentinels(ent->v, n);
-    ent->str = (char *)(ent->v + n + SENTINELS);
-    memcpy(ent->str, str, len + 1);
+    install_sentinels(v, n);
     ent->len = len;
+    ent->n = n;
+    memcpy(ent->str, str, len + 1);
     // insert
     if (c->hc < CACHE_SIZE)
 	i = c->hc++;
@@ -309,7 +315,7 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
     }
     hv[i] = hash;
     ev[i] = ent;
-    *pv = ent->v;
+    *pv = v;
     return n;
 }
 
