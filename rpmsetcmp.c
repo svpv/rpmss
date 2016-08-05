@@ -1,11 +1,4 @@
-#include <assert.h>
 #include <string.h>
-#include <stdlib.h>
-#include "rpmss.h"
-
-static void *xmalloc(size_t n) {
-    return malloc(n);
-}
 
 /* Number of trailing sentinels in decoded Provides */
 #define SENTINELS 8
@@ -41,6 +34,13 @@ struct cache {
     /* Cache entries. */
     struct cache_ent *ev[CACHE_SIZE];
 };
+
+/* need malloc */
+#include <stdlib.h>
+#define xmalloc malloc
+
+/* need rpmssDecode */
+#include "rpmss.h"
 
 static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 {
@@ -89,8 +89,7 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
     int bpp;
     int n = rpmssDecodeInit2(str, len, &bpp);
 #define SENTINELS 8
-    ent = malloc(sizeof(*ent) + len + 1 + (n + SENTINELS) * sizeof(unsigned));
-    assert(ent);
+    ent = xmalloc(sizeof(*ent) + len + 1 + (n + SENTINELS) * sizeof(unsigned));
     n = ent->n = rpmssDecode(str, ent->v);
     if (n <= 0) {
 	free(ent);
@@ -186,8 +185,6 @@ static int setcmp(const unsigned *v1, int n1, const unsigned *v2, int n2)
     int le = 1;
     const unsigned *v1end = v1 + n1;
     const unsigned *v2end = v2 + n2;
-    for (int i = 0; i < SENTINELS; i++)
-	assert(v1end[i] == ~0u);
     unsigned v2val = *v2;
     // loop pieces
 #define IFLT4 \
