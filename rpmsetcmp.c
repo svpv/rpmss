@@ -1,7 +1,129 @@
+/*
+ * To compare two decoded sets, we basically need to compare two arrays
+ * of sorted numbers, v1[] and v2[].  This can be done with a merge-like
+ * algorithm, which advances either v1 or v2 at each step (or both, when
+ * two elements match).  We do something like this, but with a few twists.
+ *
+ * Note that, when comparing Requires against Provides, the Requires set
+ * is usually sparse:
+ *
+ *	Provides (v1): a b c d e f g h i j k l ...
+ *	Requires (v2): a   c         h   j     ...
+ *
+ * A specialized loop can skip Provides towards the next Requires element.
+ * The loop might look like this:
+ *
+ *	while (v1 < v1end && *v1 < *v2)
+ *	    v1++;
+ *
+ * The first condition, a boundary check, can be eliminated if we install
+ * V_MAX sentinel at v1end.
+ *
+ * Moreover, when the Requires set is very sparse, it makes sense to step
+ * a few elements at a time, and then step back a little bit using bisecting
+ * (cf. Binary merging in [Knuth, Vol.3, p.203]).  This requires more than
+ * one sentinel.
+ */
+static int setcmp(const unsigned *v1, int n1, const unsigned *v2, int n2)
+{
+    /* Assume that the sets are equal.
+     * These flags are cleared as the comparison progresses. */
+    int ge = 1;
+    int le = 1;
+    const unsigned *v1end = v1 + n1;
+    const unsigned *v2end = v2 + n2;
+    unsigned v2val = *v2;
+    /* loop pieces */
+#define IFLT4			\
+    if (*v1 < v2val) {		\
+	le = 0;			\
+	v1 += 4;		\
+	while (*v1 < v2val)	\
+	    v1 += 4;		\
+	v1 -= 2;		\
+	if (*v1 < v2val)	\
+	    v1++;		\
+	else			\
+	    v1--;		\
+	if (*v1 < v2val)	\
+	    v1++;		\
+	if (v1 == v1end)	\
+	    break;		\
+    }
+#define IFLT8			\
+    if (*v1 < v2val) {		\
+	le = 0;			\
+	v1 += 8;		\
+	while (*v1 < v2val)	\
+	    v1 += 8;		\
+	v1 -= 4;		\
+	if (*v1 < v2val)	\
+	    v1 += 2;		\
+	else			\
+	    v1 -= 2;		\
+	if (*v1 < v2val)	\
+	    v1++;		\
+	else			\
+	    v1--;		\
+	if (*v1 < v2val)	\
+	    v1++;		\
+	if (v1 == v1end)	\
+	    break;		\
+    }
+#define IFGE			\
+    if (*v1 == v2val) {		\
+	v1++;			\
+	v2++;			\
+	if (v1 == v1end)	\
+	    break;		\
+	if (v2 == v2end)	\
+	    break;		\
+	v2val = *v2;		\
+    }				\
+    else {			\
+	ge = 0;			\
+	v2++;			\
+	if (v2 == v2end)	\
+	    break;		\
+	v2val = *v2;		\
+    }
+    /* choose the right stepper */
+    if (n1 >= 16 * n2) {
+	while (1) {
+	    IFLT8;
+	    IFGE;
+	}
+    }
+    else {
+	while (1) {
+	    IFLT4;
+	    IFGE;
+	}
+    }
+    /* return */
+    if (v1 < v1end)
+	le = 0;
+    if (v2 < v2end)
+	ge = 0;
+    if (le && ge)
+	return 0;
+    if (ge)
+	return 1;
+    if (le)
+	return -1;
+    return -2;
+}
+
+/* need memset */
 #include <string.h>
 
-/* Number of trailing sentinels in decoded Provides */
+/* The above technique requires sentinels properly installed
+ * at the end of every Provides set. */
+static inline void install_sentinels(unsigned *v, int n)
+{
 #define SENTINELS 8
+    memset(v + n, 0xff, SENTINELS * sizeof(*v));
+}
 
 struct cache_ent {
     char *str;
@@ -88,15 +210,13 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
     int len = strlen(str);
     int bpp;
     int n = rpmssDecodeInit2(str, len, &bpp);
-#define SENTINELS 8
     ent = xmalloc(sizeof(*ent) + len + 1 + (n + SENTINELS) * sizeof(unsigned));
     n = ent->n = rpmssDecode(str, ent->v);
     if (n <= 0) {
 	free(ent);
 	return n;
     }
-    for (i = 0; i < SENTINELS; i++)
-	ent->v[n + i] = ~0u;
+    install_sentinels(ent->v, n);
     ent->str = (char *)(ent->v + n + SENTINELS);
     memcpy(ent->str, str, len + 1);
     ent->len = len;
@@ -178,95 +298,6 @@ static int downsample(const unsigned *v, int n, unsigned *w, int bpp)
     return w - w_start;
 }
 
-/* Compare decoded sets */
-static int setcmp(const unsigned *v1, int n1, const unsigned *v2, int n2)
-{
-    int ge = 1;
-    int le = 1;
-    const unsigned *v1end = v1 + n1;
-    const unsigned *v2end = v2 + n2;
-    unsigned v2val = *v2;
-    // loop pieces
-#define IFLT4 \
-    if (*v1 < v2val) { \
-	le = 0; \
-	v1 += 4; \
-	while (*v1 < v2val) \
-	    v1 += 4; \
-	v1 -= 2; \
-	if (*v1 < v2val) \
-	    v1++; \
-	else \
-	    v1--; \
-	if (*v1 < v2val) \
-	    v1++; \
-	if (v1 == v1end) \
-	    break; \
-    }
-#define IFLT8 \
-    if (*v1 < v2val) { \
-	le = 0; \
-	v1 += 8; \
-	while (*v1 < v2val) \
-	    v1 += 8; \
-	v1 -= 4; \
-	if (*v1 < v2val) \
-	    v1 += 2; \
-	else \
-	    v1 -= 2; \
-	if (*v1 < v2val) \
-	    v1++; \
-	else \
-	    v1--; \
-	if (*v1 < v2val) \
-	    v1++; \
-	if (v1 == v1end) \
-	    break; \
-    }
-#define IFGE \
-    if (*v1 == v2val) { \
-	v1++; \
-	v2++; \
-	if (v1 == v1end) \
-	    break; \
-	if (v2 == v2end) \
-	    break; \
-	v2val = *v2; \
-    } \
-    else { \
-	ge = 0; \
-	v2++; \
-	if (v2 == v2end) \
-	    break; \
-	v2val = *v2; \
-    }
-    // choose the right stepper
-    if (n1 >= 16 * n2) {
-	while (1) {
-	    IFLT8;
-	    IFGE;
-	}
-    }
-    else {
-	while (1) {
-	    IFLT4;
-	    IFGE;
-	}
-    }
-    // return
-    if (v1 < v1end)
-	le = 0;
-    if (v2 < v2end)
-	ge = 0;
-    if (le && ge)
-	return 0;
-    if (ge)
-	return 1;
-    if (le)
-	return -1;
-    return -2;
-}
-
 /* Decode small Provides version without caching */
 #define PROV_STACK_SIZE 256
 
@@ -284,8 +315,7 @@ static int setcmp2a(const unsigned *v1o, unsigned *v1, unsigned *vx,
 	v1 = vx;
 	vx = tmp;
     }
-    for (int i = 0; i < SENTINELS; i++)
-	v1[n1 + i] = ~0u;
+    install_sentinels(v1, n1);
     return setcmp(v1, n1, v2, n2);
 }
 
@@ -329,8 +359,7 @@ static int setcmp2(const char *s1, int n1, int bpp1,
 	n1 = rpmssDecode(s1, v1);
 	if (n1 <= 0)
 	    return -11;
-	for (int i = 0; i < SENTINELS; i++)
-	    v1[n1 + i] = ~0u;
+	install_sentinels(v1, n1);
 	return setcmp(v1, n1, v2, n2);
     }
 }
