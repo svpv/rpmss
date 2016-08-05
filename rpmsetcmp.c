@@ -125,6 +125,82 @@ static inline void install_sentinels(unsigned *v, int n)
     memset(v + n, 0xff, SENTINELS * sizeof(*v));
 }
 
+/*
+ * Recall that the elements of a set are not necessarily full 32-bit
+ * integers; sets explicitly express their bpp parameter, bits per value.
+ * Two sets with different bpp can still be meaningfully compared,
+ * provided that lower bits of full 32-bit hash were used as bpp hash.
+ * In this case, the set with bigger bpp can be "downsampled" to match
+ * the smaller bpp set: higher bits stripped, and elements sorted again.
+ *
+ * Note, however, that most of the time, downsampling will only be needed
+ * for Provides versions (due to new exported symbols), and hash values
+ * will be reduced only by 1 bit.  Reduction by 1 bit can be implemented
+ * without sorting the values again.  Indeed, only a merge is required.
+ * The array v[] can be split into two parts: the first part v1[] and
+ * the second part v2[], the latter having values with high bit set.
+ * After the high bit is stripped, v2[] values are still sorted.
+ * It suffices to merge v1[] and v2[].
+ */
+/* Reduce a set of (bpp + 1) values to a set of bpp values. */
+static int downsample1(const unsigned *v, int n, unsigned *w, int bpp)
+{
+    unsigned mask = (1U << bpp) - 1;
+    /* Find the first element with high bit set. */
+    int l = 0;
+    int u = n;
+    while (l < u) {
+	int i = (l + u) / 2;
+	if (v[i] <= mask)
+	    l = i + 1;
+	else
+	    u = i;
+    }
+    /* Initialize parts. */
+    const unsigned *w_start = w;
+    const unsigned *v1 = v + 0, *v1end = v + u;
+    const unsigned *v2 = v + u, *v2end = v + n;
+    /* Merge v1 and v2 into w. */
+    if (v1 < v1end && v2 < v2end) {
+	unsigned v1val = *v1;
+	unsigned v2val = *v2 & mask;
+	while (1) {
+	    if (v1val < v2val) {
+		*w++ = v1val;
+		v1++;
+		if (v1 == v1end)
+		    break;
+		v1val = *v1;
+	    }
+	    else if (v2val < v1val) {
+		*w++ = v2val;
+		v2++;
+		if (v2 == v2end)
+		    break;
+		v2val = *v2 & mask;
+	    }
+	    else {
+		*w++ = v1val;
+		v1++;
+		v2++;
+		if (v1 == v1end)
+		    break;
+		if (v2 == v2end)
+		    break;
+		v1val = *v1;
+		v2val = *v2 & mask;
+	    }
+	}
+    }
+    /* Append what's left. */
+    while (v1 < v1end)
+	*w++ = *v1++;
+    while (v2 < v2end)
+	*w++ = *v2++ & mask;
+    /* The number of values may decrease. */
+    return w - w_start;
+}
+
 struct cache_ent {
     char *str;
     int len;
@@ -240,64 +316,6 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 /* The real cache.  You can make it __thread. */
 static struct cache cache;
 
-/* Reduce a set of (bpp + 1) values to a set of bpp values. */
-static int downsample(const unsigned *v, int n, unsigned *w, int bpp)
-{
-    unsigned mask = (1 << bpp) - 1;
-    // find the first element with high bit set
-    int l = 0;
-    int u = n;
-    while (l < u) {
-	int i = (l + u) / 2;
-	if (v[i] <= mask)
-	    l = i + 1;
-	else
-	    u = i;
-    }
-    // initialize parts
-    const unsigned *w_start = w;
-    const unsigned *v1 = v + 0, *v1end = v + u;
-    const unsigned *v2 = v + u, *v2end = v + n;
-    // merge v1 and v2 into w
-    if (v1 < v1end && v2 < v2end) {
-	unsigned v1val = *v1;
-	unsigned v2val = *v2 & mask;
-	while (1) {
-	    if (v1val < v2val) {
-		*w++ = v1val;
-		v1++;
-		if (v1 == v1end)
-		    break;
-		v1val = *v1;
-	    }
-	    else if (v2val < v1val) {
-		*w++ = v2val;
-		v2++;
-		if (v2 == v2end)
-		    break;
-		v2val = *v2 & mask;
-	    }
-	    else {
-		*w++ = v1val;
-		v1++;
-		v2++;
-		if (v1 == v1end)
-		    break;
-		if (v2 == v2end)
-		    break;
-		v1val = *v1;
-		v2val = *v2 & mask;
-	    }
-	}
-    }
-    // append what's left
-    while (v1 < v1end)
-	*w++ = *v1++;
-    while (v2 < v2end)
-	*w++ = *v2++ & mask;
-    return w - w_start;
-}
-
 /* Decode small Provides version without caching */
 #define PROV_STACK_SIZE 256
 
@@ -307,10 +325,10 @@ static int setcmp2a(const unsigned *v1o, unsigned *v1, unsigned *vx,
 	const unsigned *v2, int n2, int bpp2)
 {
     bpp1--;
-    n1 = downsample(v1o, n1, v1, bpp1);
+    n1 = downsample1(v1o, n1, v1, bpp1);
     while (bpp1 > bpp2) {
 	bpp1--;
-	n1 = downsample(v1, n1, vx, bpp1);
+	n1 = downsample1(v1, n1, vx, bpp1);
 	unsigned *tmp = v1;
 	v1 = vx;
 	vx = tmp;
@@ -374,7 +392,7 @@ static int setcmp1a(const char *s1, int n1, int bpp1,
     unsigned *vx = v2 + n2;
     do {
 	bpp2--;
-	n2 = downsample(v2, n2, vx, bpp2);
+	n2 = downsample1(v2, n2, vx, bpp2);
 	unsigned *tmp = v2;
 	v2 = vx;
 	vx = tmp;
