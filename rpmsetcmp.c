@@ -10,30 +10,51 @@ static void *xmalloc(size_t n) {
 /* Number of trailing sentinels in decoded Provides */
 #define SENTINELS 8
 
-static
-int cache_decode(const char *str, const unsigned **pv)
+struct cache_ent {
+    char *str;
+    int len;
+    int n;
+    unsigned v[];
+};
+
+/* The cache of this size (about 256 entries) can provide
+ * 75% hit ratio while using less than 2MB of malloc chunks. */
+#define CACHE_SIZE (256 - 2) /* Need sentinel and count */
+
+/* We use LRU cache with a special first-time insertion policy.
+ * When adding an element to the cache for the first time,
+ * pushing it to the front tends to assign "extra importance"
+ * to that new element, at the expense of other elements that are
+ * already in the cache.  The idea is then to try first-time
+ * insertion somewhere in the middle.  Further attempts suggest
+ * that the "midpoint" or "pivot" should be closer to the end. */
+#define PIVOT_SIZE (CACHE_SIZE * 7 / 8)
+
+struct cache {
+    /* We use a separate array of hash(ent->str) values.
+     * The search is first done on this array, without touching
+     * the entries.  Note that hv[] goes first and gets the best
+     * alignment, which might facilitate the search. */
+    unsigned hv[CACHE_SIZE + 1];
+    /* Total count, initially less than CACHE_SIZE. */
+    int hc;
+    /* Cache entries. */
+    struct cache_ent *ev[CACHE_SIZE];
+};
+
+static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 {
-    struct cache_ent {
-	char *str;
-	int len;
-	int n;
-	unsigned v[];
-    };
-#define CACHE_SIZE 256
-#define PIVOT_SIZE 232
-    static int hc;
-    static unsigned hv[CACHE_SIZE + 1];
-    static struct cache_ent *ev[CACHE_SIZE];
-    // look up in the cache
     int i;
     struct cache_ent *ent;
-    unsigned *hp = hv;
+    unsigned *hv = c->hv;
+    struct cache_ent **ev = c->ev;
     unsigned hash;
     memcpy(&hash, str, 4);
     // Install sentinel
-    hp[hc] = hash;
+    hv[c->hc] = hash;
     while (1) {
 	// Find hash
+	unsigned *hp = hv;
 	while (1) {
 	    // Cf. Quicker sequential search in [Knuth, Vol.3, p.398]
 	    if (hp[0] == hash) break;
@@ -44,7 +65,7 @@ int cache_decode(const char *str, const unsigned **pv)
 	}
 	i = hp - hv;
 	// Found sentinel?
-	if (i == hc)
+	if (i == c->hc)
 	    break;
 	// Found entry
 	ent = ev[i];
@@ -81,8 +102,8 @@ int cache_decode(const char *str, const unsigned **pv)
     memcpy(ent->str, str, len + 1);
     ent->len = len;
     // insert
-    if (hc < CACHE_SIZE)
-	i = hc++;
+    if (c->hc < CACHE_SIZE)
+	i = c->hc++;
     else {
 	// free last entry
 	free(ev[CACHE_SIZE - 1]);
@@ -97,13 +118,8 @@ int cache_decode(const char *str, const unsigned **pv)
     return n;
 }
 
-static void cache_lock(void)
-{
-}
-
-static void cache_unlock(void)
-{
-}
+/* The real cache.  You can make it __thread. */
+static struct cache cache;
 
 /* Reduce a set of (bpp + 1) values to a set of bpp values. */
 static int downsample(const unsigned *v, int n, unsigned *w, int bpp)
@@ -284,16 +300,13 @@ static int setcmp2(const char *s1, int n1, int bpp1,
     if (bpp1 > bpp2) {
 	/* decode using cache */
 	if (n1 > PROV_STACK_SIZE) {
-	    cache_lock();
 	    const unsigned *v1o;
-	    n1 = cache_decode(s1, &v1o);
+	    n1 = cache_decode(&cache, s1, &v1o);
 	    if (n1 <= 0) {
-		cache_unlock();
 		return -11;
 	    }
 	    unsigned *v1 = xmalloc(n1 * 2 + SENTINELS);
 	    int cmp = setcmp2a(v1o, v1, v1 + n1, n1, bpp1, v2, n2, bpp2);
-	    cache_unlock();
 	    free(v1);
 	    return cmp;
 	}
@@ -306,15 +319,12 @@ static int setcmp2(const char *s1, int n1, int bpp1,
     }
     /* will not downsample */
     if (n1 > PROV_STACK_SIZE) {
-	cache_lock();
 	const unsigned *v1;
-	n1 = cache_decode(s1, &v1);
+	n1 = cache_decode(&cache, s1, &v1);
 	if (n1 <= 0) {
-	    cache_unlock();
 	    return -11;
 	}
 	int cmp = setcmp(v1, n1, v2, n2);
-	cache_unlock();
 	return cmp;
     }
     else {
