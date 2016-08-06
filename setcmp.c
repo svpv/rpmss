@@ -1,8 +1,3 @@
-/* Need %as for scanf */
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,17 +38,23 @@ int main(int argc, const char **argv)
     if (argc == 3)
 	return setcmp(argv[1], argv[2]);
     int rc = 0;
-    while (1) {
-	char *s1 = NULL, *s2 = NULL;
-	int n = scanf("%as %as", &s1, &s2);
-	if (n == EOF)
-	    break;
-	assert(n == 2);
-	assert(s1 && s2);
+    char *line = NULL;
+    size_t alloc_size = 0;
+    ssize_t len;
+    while ((len = getline(&line, &alloc_size, stdin)) >= 0) {
+	if (len > 0 && line[len-1] == '\n')
+	    line[--len] = '\0';
+	if (len == 0)
+	    continue;
+	char *s1 = line;
+	char *s2 = strchr(line, ' ');
+	if (s2 == NULL)
+	    s2 = strchr(line, '\t');
+	assert(s2);
+	*s2++ = '\0';
 	rc |= setcmp(s1, s2);
-	free(s1);
-	free(s2);
     }
+    free(line);
     return rc;
 }
 

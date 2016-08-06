@@ -12,7 +12,6 @@ mkset_LDADD = librpmset.la librpmss.la
 
 setcmp_SOURCES = setcmp.c
 setcmp_LDADD = librpmsetcmp.la librpmss.la
-setcmp_CFLAGS = $(AM_CFLAGS) -Wno-error=format
 
 test_rpmss_SOURCES = test-rpmss.c
 test_rpmss_LDADD = librpmss.la
