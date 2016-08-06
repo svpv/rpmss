@@ -245,7 +245,10 @@ struct cache {
 /* need rpmssDecode */
 #include "rpmss.h"
 
-static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
+static int cache_decode(struct cache *c,
+			const char *str, int len,
+			int n /* expected v[] size */,
+			const unsigned **pv)
 {
     int i;
     struct cache_ent *ent;
@@ -273,7 +276,7 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 	// Found an entry
 	ent = ev[i];
 	// Recheck the entry
-	if (memcmp(str, ent->str, ent->len + 1)) {
+	if (len != ent->len || memcmp(str, ent->str, len)) {
 	    hp++;
 	    continue;
 	}
@@ -284,13 +287,10 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 	    hv[0] = hash;
 	    ev[0] = ent;
 	}
-	*pv = ENT_V(ent, ent->len);
+	*pv = ENT_V(ent, len);
 	return ent->n;
     }
     // decode
-    int len = strlen(str);
-    int bpp;
-    int n = rpmssDecodeInit2(str, len, &bpp);
     ent = xmalloc(sizeof(*ent) + ENT_STRSIZE(len) + (n + SENTINELS) * sizeof(unsigned));
     unsigned *v = ENT_V(ent, len);
     n = rpmssDecode(str, v);
@@ -320,142 +320,215 @@ static int cache_decode(struct cache *c, const char *str, const unsigned **pv)
 }
 
 /* The real cache.  You can make it __thread. */
-static struct cache cache;
+static struct cache C;
 
-/* Decode small Provides version without caching */
-#define PROV_STACK_SIZE 256
-
-/* Stage 2a: downsample set1 */
-static int setcmp2a(const unsigned *v1o, unsigned *v1, unsigned *vx,
-	int n1, int bpp1,
-	const unsigned *v2, int n2, int bpp2)
-{
-    bpp1--;
-    n1 = downsample1(v1o, n1, v1, bpp1);
-    while (bpp1 > bpp2) {
-	bpp1--;
-	n1 = downsample1(v1, n1, vx, bpp1);
-	unsigned *tmp = v1;
-	v1 = vx;
-	vx = tmp;
-    }
-    install_sentinels(v1, n1);
-    return setcmp(v1, n1, v2, n2);
-}
-
-/* Stage 2: decode set1 (Provides) */
-static int setcmp2(const char *s1, int n1, int bpp1,
-	const unsigned *v2, int n2, int bpp2)
-{
-    /* need to downsample */
-    if (bpp1 > bpp2) {
-	/* decode using cache */
-	if (n1 > PROV_STACK_SIZE) {
-	    const unsigned *v1o;
-	    n1 = cache_decode(&cache, s1, &v1o);
-	    if (n1 <= 0)
-		return -11;
-	    unsigned *v1 = xmalloc(n1 * 2 + SENTINELS);
-	    int cmp = setcmp2a(v1o, v1, v1 + n1, n1, bpp1, v2, n2, bpp2);
-	    free(v1);
-	    return cmp;
-	}
-	/* decode on the stack */
-	unsigned v1[n1 * 2 + SENTINELS];
-	n1 = rpmssDecode(s1, v1);
-	if (n1 <= 0)
-	    return -11;
-	return setcmp2a(v1, v1 + n1, v1, n1, bpp1, v2, n2, bpp2);
-    }
-    /* will not downsample */
-    if (n1 > PROV_STACK_SIZE) {
-	const unsigned *v1;
-	n1 = cache_decode(&cache, s1, &v1);
-	if (n1 <= 0)
-	    return -11;
-	int cmp = setcmp(v1, n1, v2, n2);
-	return cmp;
-    }
-    else {
-	unsigned v1[n1 + SENTINELS];
-	n1 = rpmssDecode(s1, v1);
-	if (n1 <= 0)
-	    return -11;
-	install_sentinels(v1, n1);
-	return setcmp(v1, n1, v2, n2);
-    }
-}
-
-/* Stage 1a: decode set2 with downsampling */
-static int setcmp1a(const char *s1, int n1, int bpp1,
-	const char *s2, int n2, int bpp2, unsigned *v2)
-{
-    n2 = rpmssDecode(s2, v2);
-    if (n2 <= 0)
-	return -12;
-    unsigned *vx = v2 + n2;
-    do {
-	bpp2--;
-	n2 = downsample1(v2, n2, vx, bpp2);
-	unsigned *tmp = v2;
-	v2 = vx;
-	vx = tmp;
-    } while (bpp2 > bpp1);
-    return setcmp2(s1, n1, bpp1, v2, n2, bpp2);
-}
+/* Decode small Provides version without caching.
+ * Merely touching the cache is relatively expensive; also,
+ * the existing cache entries should not be discarded too easily. */
+#define DECODE_CACHE_SIZE 256
 
 /* Limit stack memory usage */
-#define REQ_STACK_SIZE 1024
+#define DECODE_STACK_SIZE 1024
 
-/* Stage 1: decode set2 (Requires) */
-static int setcmp1(const char *s1, int n1, int bpp1,
-	const char *s2, int n2, int bpp2)
-{
-    /* need to downsample */
-    if (bpp2 > bpp1) {
-	/* decode using malloc */
-	if (n2 > REQ_STACK_SIZE / 2) {
-	    unsigned *v2 = xmalloc(n2 * 2);
-	    int cmp = setcmp1a(s1, n1, bpp1, s2, n2, bpp2, v2);
-	    free(v2);
-	    return cmp;
-	}
-	/* decode on the stack */
-	unsigned v2[n2 * 2];
-	return setcmp1a(s1, n1, bpp1, s2, n2, bpp2, v2);
-    }
-    /* will not downsample */
-    if (n2 > REQ_STACK_SIZE) {
-	unsigned *v2 = xmalloc(n2);
-	n2 = rpmssDecode(s2, v2);
-	if (n2 <= 0) {
-	    free(v2);
-	    return -12;
-	}
-	int cmp = setcmp2(s1, n1, bpp1, v2, n2, bpp2);
-	free(v2);
-	return cmp;
-    }
-    unsigned v2[n2];
-    n2 = rpmssDecode(s2, v2);
-    if (n2 <= 0)
-	return -12;
-    return setcmp2(s1, n1, bpp1, v2, n2, bpp2);
-}
+/* API */
+#include "rpmsetcmp.h"
 
 int rpmsetcmp(const char *s1, const char *s2)
 {
     // initialize decoding
     int bpp1;
-    int n1 = rpmssDecodeInit1(s1, &bpp1);
+    int len1 = strlen(s1);
+    int n1 = rpmssDecodeInit(s1, len1, &bpp1);
     if (n1 < 0)
 	return -11;
     int bpp2;
-    int n2 = rpmssDecodeInit1(s2, &bpp2);
+    int len2 = strlen(s2);
+    int n2 = rpmssDecodeInit(s2, len2, &bpp2);
     if (n2 < 0)
 	return -12;
-    // run comparison stages
-    return setcmp1(s1, n1, bpp1, s2, bpp2, n2);
+
+    /* Unknown error, cannot happen. */
+    int cmp = -13;
+
+    /* This is the final continuation; v1[] and v2[] names
+     * are not known yet, but their sizes are n1 and n2. */
+#define SETCMP(v1, v2)					\
+    do {						\
+	cmp = setcmp(v1, n1, v2, n2);			\
+    } while (0)
+
+    /* Decoding Provides has some asymmetries: cache_decode
+     * returns read-only buffer (which cannot be recycled)
+     * with the sentinels already allocated and installed. */
+#define DECODE_PROVIDES2(SENTINELS, NEXTC, NEXT)	\
+    do {						\
+        if (n1 >= DECODE_CACHE_SIZE) {			\
+	    const unsigned *v1;				\
+	    n1 = cache_decode(&C, s1, len1, n1, &v1);	\
+	    if (n1 <= 0) {				\
+		cmp = -11;				\
+		break;					\
+	    }						\
+	    NEXTC;					\
+        } else {					\
+	    unsigned v1[n1 + SENTINELS];		\
+	    n1 = rpmssDecode(s1, v1);			\
+	    if (n1 <= 0) {				\
+		cmp = -11;				\
+		break;					\
+	    }						\
+	    NEXT;					\
+	}						\
+    } while (0)
+
+    /* Pass SENTINELS or NO_SENTINELS to be used in NEXT. */
+#define NO_SENTINELS 0
+
+    /* Sometimes Provides are handled symmetrically. */
+#define DECODE_PROVIDES(SENTINELS, NEXT)		\
+	DECODE_PROVIDES2(SENTINELS, NEXT, NEXT)
+
+    /* Simplify v[] array allocation. */
+#define vmalloc(n) xmalloc((n) * sizeof(unsigned))
+
+    /* Decoding Requires is always symmetrical. */
+#define DECODE_REQUIRES(NEXT)				\
+    do {						\
+        if (n2 > DECODE_STACK_SIZE) {			\
+	    unsigned *v2 = vmalloc(n2);			\
+	    n2 = rpmssDecode(s2, v2);			\
+	    if (n2 <= 0) {				\
+		free(v2);				\
+		cmp = -12;				\
+		break;					\
+	    }						\
+	    NEXT;					\
+	    free(v2);					\
+        } else {					\
+	    unsigned v2[n2];				\
+	    n2 = rpmssDecode(s2, v2);			\
+	    if (n2 <= 0) {				\
+		cmp = -12;				\
+		break;					\
+	    }						\
+	    NEXT;					\
+	}						\
+    } while (0)
+
+    /* Sentinels are only needed for Provides, which might
+     * change its name from v1 to w, but still uses n1. */
+#define INSTALL_SENTINELS(v, NEXT)			\
+    do {						\
+	install_sentinels(v, n1);			\
+	NEXT;						\
+    } while (0)
+
+    /* Now we're ready to handle the simple case
+     * in which downsampling is not needed. */
+    if (bpp1 == bpp2) {
+	DECODE_PROVIDES2(SENTINELS,
+	    /* cache has sentinels */
+		DECODE_REQUIRES(SETCMP(v1, v2)),
+	    INSTALL_SENTINELS(v1,
+		DECODE_REQUIRES(SETCMP(v1, v2))));
+	return cmp;
+    }
+
+    /* Simplify malloc/stack processing which does not require
+     * error handling and breaking out of the NEXT. */
+#define ALLOC(w, n, NEXT)				\
+    do {						\
+	if (n > DECODE_STACK_SIZE) {			\
+	    unsigned *w = vmalloc(n);			\
+	    NEXT;					\
+	    free(w);					\
+        } else {					\
+	    unsigned w[n];				\
+	    NEXT;					\
+	}						\
+    } while (0)
+
+    /* Downsample either Provides or Requires. */
+#define DOWNSAMPLE1(v, n, w, bpp, NEXT)			\
+    do {						\
+	n = downsample1(v, n, w, bpp);			\
+	NEXT;						\
+    } while (0)
+
+    /* Now can handle two more cases. */
+    if (bpp1 == bpp2 + 1) {
+	DECODE_PROVIDES(NO_SENTINELS,
+	    ALLOC(w, n1 + SENTINELS,
+		DOWNSAMPLE1(v1, n1, w, bpp2,
+		    INSTALL_SENTINELS(w,
+			DECODE_REQUIRES(SETCMP(w, v2))))));
+	return cmp;
+    }
+    if (bpp2 == bpp1 + 1) {
+	DECODE_PROVIDES2(SENTINELS,
+	    /* cache has sentinels */
+DECODE_REQUIRES(ALLOC(w, n2, DOWNSAMPLE1(v2, n2, w, bpp1, SETCMP(v1, w)))),
+	    INSTALL_SENTINELS(v1,
+DECODE_REQUIRES(ALLOC(w, n2, DOWNSAMPLE1(v2, n2, w, bpp1, SETCMP(v1, w))))));
+	return cmp;
+    }
+
+    /* Simplify double buffer allocation. */
+#define ALLOC2(w1, w2, n, SENTINELS, NEXT)		\
+	ALLOC(w0, n * 2 + SENTINELS,			\
+	ALLOC2_NEXT(w0, w1, w2, n, NEXT))
+#define ALLOC2_NEXT(w0, w1, w2, n, NEXT)		\
+    do {						\
+	unsigned *w1 = w0;				\
+	unsigned *w2 = w0 + n;				\
+	NEXT;						\
+    } while (0)
+
+    /* Simplify conversion from buffer to pointer. */
+#define RENAME(v, w, NEXT)				\
+    do {						\
+	unsigned *w = v;				\
+	NEXT;						\
+    } while (0)
+
+    /* Downsample either Requires or Provides using w1 and w2
+     * alternate buffers; w1 and w2 must be pointers, they will be
+     * freely exchanged; w2 may point to v; the output is in w1. */
+#define DOWNSAMPLE(v, n, w1, w2, bppG, bppL, NEXT)	\
+    do {						\
+	bppG--;						\
+	n = downsample1(v, n, w1, bppG);		\
+	do {						\
+	    bppG--;					\
+	    n = downsample1(w1, n, w2, bppG);		\
+	    unsigned *wx = w1;				\
+	    w1 = w2;					\
+	    w2 = wx;					\
+	} while (bppG > bppL);				\
+	NEXT;						\
+    } while (0)
+
+    /* Handle the most difficult cases. */
+    if (bpp1 > bpp2) {
+	DECODE_PROVIDES2(SENTINELS,
+	    ALLOC2(w, w2, n1, SENTINELS,
+DOWNSAMPLE(v1, n1, w, w2, bpp1, bpp2, INSTALL_SENTINELS(w, DECODE_REQUIRES(SETCMP(w, v2))))),
+	    ALLOC(w0, n1 + SENTINELS,
+		RENAME(w0, w,
+		    RENAME(v1, w2,
+DOWNSAMPLE(v1, n1, w, w2, bpp1, bpp2, INSTALL_SENTINELS(w, DECODE_REQUIRES(SETCMP(w, v2))))))));
+	return cmp;
+    }
+
+    /* bpp2 > bpp1 */
+    {
+	DECODE_PROVIDES2(SENTINELS,
+	    /* cache has sentinels */
+DECODE_REQUIRES(ALLOC(w0, n2, RENAME(w0, w, RENAME(v2, w2, DOWNSAMPLE(v2, n2, w, w2, bpp2, bpp1, SETCMP(v1, w)))))),
+	    INSTALL_SENTINELS(v1,
+DECODE_REQUIRES(ALLOC(w0, n2, RENAME(w0, w, RENAME(v2, w2, DOWNSAMPLE(v2, n2, w, w2, bpp2, bpp1, SETCMP(v1, w))))))));
+	return cmp;
+    }
 }
 
 // ex: set ts=8 sts=4 sw=4 noet:

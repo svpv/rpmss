@@ -243,6 +243,11 @@ static int decodeInit(const char *s, int *pbpp)
     return m;
 }
 
+/* This version tries to estimate output size by only looking
+ * at parameters, without actually knowing string length.
+ * Such estimate would require special handling of malformed
+ * set-strings in rpmssDecode. */
+#if 0
 int rpmssDecodeInit1(const char *s, int *pbpp)
 {
     int m = decodeInit(s, pbpp);
@@ -250,8 +255,9 @@ int rpmssDecodeInit1(const char *s, int *pbpp)
 	return m;
     return (1 << (*pbpp - m)) - 1;
 }
+#endif
 
-int rpmssDecodeInit2(const char *s, int len, int *pbpp)
+int rpmssDecodeInit(const char *s, int len, int *pbpp)
 {
     int m = decodeInit(s, pbpp);
     if (m < 0)

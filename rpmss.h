@@ -46,12 +46,11 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s);
  * Initialize decoding.  The second routine requires the string length
  * to be known in adavnce while providing tighter size estimates.
  * @param s		alnum string to decode, null-terminated
- * @param len		alnum string length
+ * @param len		alnum string length, i.e. strlen(s)
  * @param pbpp		original bits per value
- * @return		number of values (upper size), < 0 on error
+ * @return		number of values (upper bound), < 0 on error
  */
-int rpmssDecodeInit1(const char *s, int *pbpp);
-int rpmssDecodeInit2(const char *s, int len, int *pbpp);
+int rpmssDecodeInit(const char *s, int len, int *pbpp);
 
 /** \ingroup rpmss
  * Decode the set-string values.

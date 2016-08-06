@@ -26,7 +26,7 @@ void test_set(unsigned *v0, int n0, int bpp0, int print)
 	printf("set:%s\n", s);
     // decode
     int bpp1;
-    int v1size = rpmssDecodeInit2(s, len, &bpp1);
+    int v1size = rpmssDecodeInit(s, len, &bpp1);
     assert(v1size >= n0);
     unsigned *v1 = malloc(v1size * sizeof(unsigned));
     int n1 = rpmssDecode(s, v1);
