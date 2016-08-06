@@ -209,7 +209,7 @@ struct cache_ent {
     char str[];
     /* After null-terminated str[], there goes v[n], properly aligned.
      * Provide some macros to deal with str[] and access v[]. */
-#define ENT_STRSIZE(len) ((len + sizeof(unsigned)) & ~sizeof(unsigned))
+#define ENT_STRSIZE(len) ((len + sizeof(unsigned)) & ~(sizeof(unsigned)-1))
 #define ENT_V(ent, len) ((unsigned *)(ent->str + ENT_STRSIZE(len)))
 };
 
