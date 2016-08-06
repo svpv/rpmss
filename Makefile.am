@@ -6,7 +6,7 @@ librpmss_la_CFLAGS = $(AM_CFLAGS) -Wno-override-init
 librpmset_la_SOURCES = rpmset.c
 librpmsetcmp_la_SOURCES = rpmsetcmp.c
 
-bin_PROGRAMS = mkset setcmp test-rpmss
+bin_PROGRAMS = mkset setcmp test-rpmss setconv
 mkset_SOURCES = mkset.c
 mkset_LDADD = librpmset.la librpmss.la
 
@@ -15,3 +15,7 @@ setcmp_LDADD = librpmsetcmp.la librpmss.la
 
 test_rpmss_SOURCES = test-rpmss.c
 test_rpmss_LDADD = librpmss.la
+
+setconv_SOURCES = setconv.c
+setconv_LDADD = librpmss.la
+setconv_CFLAGS = $(AM_CFLAGS) -Wno-override-init
