@@ -1,0 +1,8 @@
+#!/bin/bash -eux
+rm -f *{rpmss,rpmsetcmp}.{o,lo} setcmp
+make librpmss.la setcmp
+rm *{rpmss,rpmsetcmp}.{o,lo} setcmp
+make librpmss.la setcmp CFLAGS='-g -O3 -fprofile-generate'
+join -t$'\t' [PR].new |cut -f2,3 |shuf |./setcmp >/dev/null
+rm *{rpmss,rpmsetcmp}.{o,lo} setcmp
+make librpmss.la setcmp CFLAGS='-g -O3 -fprofile-use'
