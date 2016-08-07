@@ -425,26 +425,26 @@ int rpmssDecode(const char *s, unsigned *v)
 #define Get(X) \
     { \
 	long w = *(unsigned short *) s; \
-	s += 2; \
 	b = word2bits[w]; \
 	/* the most common case: 12 bits */ \
 	if (b < 0x1000) { \
 	    /* further try to combine 12+12 or 12+11 bits */ \
-	    w = *(unsigned short *) s; \
+	    w = *(unsigned short *) (s + 2); \
 	    unsigned bx = word2bits[w]; \
 	    if (bx < 0x1000) { \
-		s += 2; \
+		s += 4; \
 		b |= (bx << 12); \
 		n = 24; \
 		goto put ## X; \
 	    } \
 	    if (bx < 0x2000) { \
-		s += 2; \
+		s += 4; \
 		bx &= 0x0fff; \
 		b |= (bx << 12); \
 		n = 23; \
 		goto put ## X; \
 	    } \
+	    s += 2; \
 	    n = 12; \
 	    goto put ## X; \
 	} \
@@ -452,18 +452,20 @@ int rpmssDecode(const char *s, unsigned *v)
 	if (b < 0x2000) { \
 	    b &= 0x0fff; \
 	    /* further try to combine 11+12 bits */ \
-	    w = *(unsigned short *) s; \
+	    w = *(unsigned short *) (s + 2); \
 	    unsigned bx = word2bits[w]; \
 	    if (bx < 0x1000) { \
-		s += 2; \
+		s += 4; \
 		b |= (bx << 11); \
 		n = 23; \
 		goto put ## X; \
 	    } \
+	    s += 2; \
 	    n = 11; \
 	    goto put ## X; \
 	} \
 	/* less common cases: fewer bits and/or eol */ \
+	s += 2; \
 	switch (b & 0xf000) { \
 	case W_10: \
 	    b &= 0x0fff; \
