@@ -258,9 +258,9 @@ static int cache_decode(struct cache *c,
     memcpy(&hash, str, sizeof hash);
     // Install sentinel
     hv[c->hc] = hash;
+    unsigned *hp = hv;
     while (1) {
 	// Find hash
-	unsigned *hp = hv;
 	while (1) {
 	    // Cf. Quicker sequential search in [Knuth, Vol.3, p.398]
 	    if (hp[0] == hash) break;
