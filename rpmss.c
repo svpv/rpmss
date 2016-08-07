@@ -2,15 +2,61 @@
 #include "rpmss.h"
 
 /*
+ * Encoding is performed in three logical steps.
+ *
+ * 1) Delta encoding: a sorted sequence of integer values
+ * is replaced by the sequence of their differences.
+ *
+ * Initial dv is taken to be v[0].  Two consecutive numbers
+ * are represented with dv=0 (e.g. v=[1,2,4] yields dv=[1,0,1]);
+ * therefore, the values in v[] must be unique.
+ *
+ * 2) Golomb-Rice coding: integers are compressed into bits.
+ *
+ * The idea is as follows.  Input values are assumed to be small
+ * integers.  Each value is split into two parts: an integer resulting
+ * from its higher bits and an integer resulting from its lower bits
+ * (with the number of lower bits specified by the special m parameter).
+ * The first integer, called q, is then stored in unary coding (which is
+ * a variable-length sequence of 0 bits followed by a terminating 1);
+ * the second part, called r, the remainder, is stored in normal binary
+ * coding (using m bits).
+ *
+ * The method is justified by the fact that, since most of the values
+ * are small, their first parts will be short (typically 1..3 bits).
+ * In particular, the method is known to be optimal for uniformly
+ * distributed hash values, after the values are sorted and
+ * delta-encoded; see [1] and also [2] for more general treatment.
+ *
+ * 3) Base62 armor: bits are serialized with alphanumeric characters.
+ *
+ * We implement a base64-based base62 encoding which is similar, but not
+ * identical to, the one described in [3].  To encode 6 bits, we need 64
+ * characters, but we have only 62.  Missing characters are 62 = 111110
+ * and 63 = 111111.  Therefore, if the lower 5 bits are 11110 (which is
+ * 30 or 'U') or 11111 (which is 31 or 'V' - in terms of [0-9A-Za-z]),
+ * we encode only five bits (using 'U' or 'V'); the sixth high bit is
+ * left for the next character.  When the last few bits are issued,
+ * missing high bits are assumed to be 0; no further special handling
+ * is required in this case.
+ *
+ * Overall, a set-string (also called a set-version in rpm) looks like
+ * this: "set:bMxyz...". The "set:" prefix marks set-versions in rpm
+ * (to distinguish them between regular rpm versions).  It is assumed
+ * to be stripped here.  The next two characters (denoted 'b' and 'M')
+ * encode two parameters: bpp using [a-z] and m using [A-Z]. Their valid
+ * ranges are 7..32 and 5..30, respectively.  Also, valid m must be less
+ * than bpp.  The rest ("xyz...") is a variable-length encoded sequence.
+ *
  * References
- * 1. Felix Putze, Peter Sanders, Johannes Singler (2007)
- *    Cache-, Hash- and Space-Efficient Bloom Filters
- * 2. A. Kiely (2004)
- *    Selecting the Golomb Parameter in Rice Coding
- * 3. Alistair Moffat, Andrew Turpin (2002)
- *    Compression and Coding Algorithms
- * 4. Kejing He, Xiancheng Xu, Qiang Yue (2008)
- *    A Secure, Lossless, and Compressed Base62 Encoding
+ * [1] Felix Putze, Peter Sanders, Johannes Singler (2007)
+ *     Cache-, Hash- and Space-Efficient Bloom Filters
+ * [2] Alistair Moffat, Andrew Turpin (2002)
+ *     Compression and Coding Algorithms
+ * [3] Kejing He, Xiancheng Xu, Qiang Yue (2008)
+ *     A Secure, Lossless, and Compressed Base62 Encoding
+ * [4] A. Kiely (2004)
+ *     Selecting the Golomb Parameter in Rice Coding
  */
 
 static int encodeInit(const unsigned *v, int n, int bpp)
@@ -93,8 +139,7 @@ int rpmssEncodeSize(const unsigned *v, int n, int bpp)
     return (bits1 + bits2) / 5 + 4;
 }
 
-static
-const char bits2char[] = "0123456789"
+static const char bits2char[] = "0123456789"
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	"abcdefghijklmnopqrstuvwxyz";
 
@@ -142,7 +187,8 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	if (n >= 6) {
 	    /*
 	     * By the loop invariant, only regular cases are possible.
-	     * (Note that irregular cases need the 5th bit set.)
+	     * (Note that irregular cases need the 5th bit set, but
+	     * we have only added zeros.)
 	     */
 	    *s++ = bits2char[b];
 	    n -= 6;
@@ -157,7 +203,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	 * Add stop bit.  We then have at least 1 bit and at most 6 bits.
 	 * If we do have 6 bits, it is not possible that the lower 5 bits
 	 * form an irregular case.  Therefore, with the next character
-	 * flushed, no q bits will be left.
+	 * flushed, no q bits, including the stop bit, will be left.
 	 */
 	b |= (1u << n);
 	n++;
@@ -167,7 +213,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	b |= (r << n);
 	n += m;
 
-	/* Got at least 6 bits, ready to flush */
+	/* Got at least 6 bits (due to m >= 5), ready to flush */
 	do {
 	    switch (b & 31) {
 	    case 30:
