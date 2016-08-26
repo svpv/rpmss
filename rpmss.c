@@ -147,12 +147,8 @@ static const char bits2char[] = "0123456789"
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	"abcdefghijklmnopqrstuvwxyz";
 
-int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
+int encode(const unsigned *v, int n, int bpp, int m, char *s)
 {
-    int m = encodeInit(v, n, bpp);
-    if (m < 0)
-	return m;
-
     /* Put bpp and m */
     const char *s_start = s;
     *s++ = bpp - 7 + 'a';
@@ -275,6 +271,14 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	*s++ = bits2char[b];
     *s = '\0';
     return s - s_start;
+}
+
+int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
+{
+    int m = encodeInit(v, n, bpp);
+    if (m < 0)
+	return m;
+    return encode(v, n, bpp, m, s);
 }
 
 static int decodeInit(const char *s, int *pbpp)
