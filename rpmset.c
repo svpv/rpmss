@@ -89,7 +89,7 @@ char *rpmsetFini(struct rpmset *set, int bpp)
     }
     int c = uniqv(set->c, v);
     // encode2
-    char s[rpmssEncodeSize(v, c, bpp)];
+    char s[rpmssEncodeInit(v, c, bpp)];
     int len = rpmssEncode(v, c, bpp, s);
     if (len < 0)
 	return NULL;

@@ -3,7 +3,7 @@
 
 static bad_set(const unsigned *v, int n, int bpp)
 {
-    int len = rpmssEncodeSize(v, n, bpp);
+    int len = rpmssEncodeInit(v, n, bpp);
     assert(len > 0);
     char s[len];
     len = rpmssEncode(v, n, bpp, s);

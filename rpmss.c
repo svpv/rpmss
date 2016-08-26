@@ -117,7 +117,7 @@ static int encodeInit(const unsigned *v, int n, int bpp)
     return m;
 }
 
-int rpmssEncodeSize(const unsigned *v, int n, int bpp)
+int rpmssEncodeInit(const unsigned *v, int n, int bpp)
 {
     int m = encodeInit(v, n, bpp);
     if (m < 0)

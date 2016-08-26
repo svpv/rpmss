@@ -30,7 +30,7 @@ extern "C" {
  * @param bpp		actual bits per value, 7..32
  * @return		buffer size for encoding, < 0 on error
  */
-int rpmssEncodeSize(const unsigned *v, int n, int bpp);
+int rpmssEncodeInit(const unsigned *v, int n, int bpp);
 
 /** \ingroup rpmss
  * Encode a set of numeric values into a set-string.

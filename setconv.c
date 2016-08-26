@@ -27,7 +27,7 @@ static int setconv(const char *s)
 	s += 4;
     int n = decode(s);
     if (n <= 0) return 1;
-    int len = rpmssEncodeSize(v, n, bpp);
+    int len = rpmssEncodeInit(v, n, bpp);
     if (n <= 0) return 1;
     ss = realloc(ss, len);
     if (rpmssEncode(v, n, bpp, ss) <= 0)

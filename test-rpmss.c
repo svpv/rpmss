@@ -9,7 +9,7 @@ static
 void test_set(unsigned *v0, int n0, int bpp0, int print)
 {
     // encode
-    int strsize = rpmssEncodeSize(v0, n0, bpp0);
+    int strsize = rpmssEncodeInit(v0, n0, bpp0);
     // too many values with too small bpp range
     if (strsize == -5)
 	return;
