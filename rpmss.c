@@ -117,12 +117,8 @@ static int encodeInit(const unsigned *v, int n, int bpp)
     return m;
 }
 
-int rpmssEncodeInit(const unsigned *v, int n, int bpp)
+static int encodeSize(const unsigned *v, int n, int m)
 {
-    int m = encodeInit(v, n, bpp);
-    if (m < 0)
-	return m;
-
     /* Need at least (m + 1) bits per value */
     int bits1 = n * (m + 1);
 
@@ -137,6 +133,14 @@ int rpmssEncodeInit(const unsigned *v, int n, int bpp)
      * need two leading characters, and the string must be null-terminated.
      */
     return (bits1 + bits2) / 5 + 4;
+}
+
+int rpmssEncodeInit(const unsigned *v, int n, int bpp)
+{
+    int m = encodeInit(v, n, bpp);
+    if (m < 0)
+	return m;
+    return encodeSize(v, n, m);
 }
 
 static const char bits2char[] = "0123456789"
