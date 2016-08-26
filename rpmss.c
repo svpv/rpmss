@@ -59,7 +59,82 @@
  *     Selecting the Golomb Parameter in Rice Coding
  */
 
-static int encodeInit(const unsigned *v, int n, int bpp)
+void m_range(unsigned dv, int *pm1, int *pm2)
+{
+    static unsigned k_min[] = {
+	/*  6 */ 95,
+	/*  7 */ 191,
+	/*  8 */ 383,
+	/*  9 */ 767,
+	/* 10 */ 1535,
+	/* 11 */ 3071,
+	/* 12 */ 6143,
+	/* 13 */ 12287,
+	/* 14 */ 24575,
+	/* 15 */ 49151,
+	/* 16 */ 98303,
+	/* 17 */ 196607,
+	/* 18 */ 393215,
+	/* 19 */ 786431,
+	/* 20 */ 1572863,
+	/* 21 */ 3145727,
+	/* 22 */ 6291455,
+	/* 23 */ 12582911,
+	/* 24 */ 25165823,
+	/* 25 */ 50331647,
+	/* 26 */ 100663295,
+	/* 27 */ 201326591,
+	/* 28 */ 402653183,
+	/* 29 */ 805306367,
+	/* 30 */ 1610612735,
+		~0U,
+    };
+    static unsigned k_max[] = {
+	/*  6 */ 33,
+	/*  7 */ 65,
+	/*  8 */ 129,
+	/*  9 */ 257,
+	/* 10 */ 513,
+	/* 11 */ 1025,
+	/* 12 */ 2049,
+	/* 13 */ 4097,
+	/* 14 */ 8193,
+	/* 15 */ 16385,
+	/* 16 */ 32769,
+	/* 17 */ 65537,
+	/* 18 */ 131073,
+	/* 19 */ 262145,
+	/* 20 */ 524289,
+	/* 21 */ 1048577,
+	/* 22 */ 2097153,
+	/* 23 */ 4194305,
+	/* 24 */ 8388609,
+	/* 25 */ 16777217,
+	/* 26 */ 33554433,
+	/* 27 */ 67108865,
+	/* 28 */ 134217729,
+	/* 29 */ 268435457,
+	/* 30 */ 536870913,
+		~0U,
+    };
+    unsigned *k = k_min;
+    while (dv > *k)
+	k++;
+    unsigned d = k - k_min;
+    int m1 = 5 + d;
+    k = k_max + d;
+    while (dv > *k)
+	k++;
+    d = k - k_max;
+    int m2 = 5 + d;
+    assert(m1 >= 5 && m1 <= 30);
+    assert(m2 >= 5 && m2 <= 30);
+    assert(m2 >= m1);
+    *pm1 = m1;
+    *pm2 = m2;
+}
+
+static int encodeInit(const unsigned *v, int n, int bpp, int *pm2)
 {
     /* No empty sets */
     if (n < 1)
@@ -91,6 +166,11 @@ static int encodeInit(const unsigned *v, int n, int bpp)
 	if (n >= (1 << (bpp - m)))
 	    return -5;
     }
+#if 1
+    /* Select m range */
+    m_range(dv, &m, pm2);
+    return m;
+#else
     else {
 	/*
 	 * When dv > 66 > 2^6, switch to use m = 6, and so on.
@@ -115,6 +195,7 @@ static int encodeInit(const unsigned *v, int n, int bpp)
     /* This also implies that m < bpp */
     assert(m < bpp);
     return m;
+#endif
 }
 
 static int encodeSize(const unsigned *v, int n, int m)
@@ -137,10 +218,22 @@ static int encodeSize(const unsigned *v, int n, int m)
 
 int rpmssEncodeInit(const unsigned *v, int n, int bpp)
 {
-    int m = encodeInit(v, n, bpp);
+    int m2;
+    int m = encodeInit(v, n, bpp, &m2);
     if (m < 0)
 	return m;
-    return encodeSize(v, n, m);
+    int size = encodeSize(v, n, m);
+    int second = 0;
+    for (m++; m <= m2; m++) {
+	int s = encodeSize(v, n, m);
+	if (s > second)
+	    second = s;
+    }
+    /* The second string will be placed after the first.
+     * It had better be aligned. */
+    if (second)
+	size += second + 15;
+    return size;
 }
 
 static const char bits2char[] = "0123456789"
@@ -273,12 +366,26 @@ int encode(const unsigned *v, int n, int bpp, int m, char *s)
     return s - s_start;
 }
 
+
+// need memcpy
+#include <string.h>
+
 int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 {
-    int m = encodeInit(v, n, bpp);
+    int m2;
+    int m = encodeInit(v, n, bpp, &m2);
     if (m < 0)
 	return m;
-    return encode(v, n, bpp, m, s);
+    int len = encode(v, n, bpp, m, s);
+    for (m++; m <= m2; m++) {
+	char *s2 = s + ((len + 16) & ~15);
+	int len2 = encode(v, n, bpp, m, s2);
+	if (len2 < len) {
+	    memcpy(s, s2, len2 + 1);
+	    len = len2;
+	}
+    }
+    return len;
 }
 
 static int decodeInit(const char *s, int *pbpp)
