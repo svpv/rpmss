@@ -59,79 +59,51 @@
  *     Selecting the Golomb Parameter in Rice Coding
  */
 
-void m_range(unsigned dv, int *pm1, int *pm2)
+static inline int log2i(unsigned n)
 {
-    static unsigned k_min[] = {
-	/*  6 */ 95,
-	/*  7 */ 191,
-	/*  8 */ 383,
-	/*  9 */ 767,
-	/* 10 */ 1535,
-	/* 11 */ 3071,
-	/* 12 */ 6143,
-	/* 13 */ 12287,
-	/* 14 */ 24575,
-	/* 15 */ 49151,
-	/* 16 */ 98303,
-	/* 17 */ 196607,
-	/* 18 */ 393215,
-	/* 19 */ 786431,
-	/* 20 */ 1572863,
-	/* 21 */ 3145727,
-	/* 22 */ 6291455,
-	/* 23 */ 12582911,
-	/* 24 */ 25165823,
-	/* 25 */ 50331647,
-	/* 26 */ 100663295,
-	/* 27 */ 201326591,
-	/* 28 */ 402653183,
-	/* 29 */ 805306367,
-	/* 30 */ 1610612735,
-		~0U,
+#ifdef  __GNUC__
+    return 31 - __builtin_clz(n);
+#else
+    /* Propagate leftmost 1-bit, branch-free.  In other words,
+     * this will round up to one less than a power of 2. */
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    /* DeBruijn multiplication provides unique mapping.
+     * The method has been known for more than 10 years now.
+     * I reproduce it under fair use. */
+    static const int tab[32] = {
+	 0,  9,  1, 10, 13, 21,  2, 29,
+	11, 14, 16, 18, 22, 25,  3, 30,
+	 8, 12, 20, 28, 15, 17, 24,  7,
+	19, 27, 23,  6, 26,  5,  4, 31,
     };
-    static unsigned k_max[] = {
-	/*  6 */ 33,
-	/*  7 */ 65,
-	/*  8 */ 129,
-	/*  9 */ 257,
-	/* 10 */ 513,
-	/* 11 */ 1025,
-	/* 12 */ 2049,
-	/* 13 */ 4097,
-	/* 14 */ 8193,
-	/* 15 */ 16385,
-	/* 16 */ 32769,
-	/* 17 */ 65537,
-	/* 18 */ 131073,
-	/* 19 */ 262145,
-	/* 20 */ 524289,
-	/* 21 */ 1048577,
-	/* 22 */ 2097153,
-	/* 23 */ 4194305,
-	/* 24 */ 8388609,
-	/* 25 */ 16777217,
-	/* 26 */ 33554433,
-	/* 27 */ 67108865,
-	/* 28 */ 134217729,
-	/* 29 */ 268435457,
-	/* 30 */ 536870913,
-		~0U,
-    };
-    unsigned *k = k_min;
-    while (dv > *k)
-	k++;
-    unsigned d = k - k_min;
-    int m1 = 5 + d;
-    k = k_max + d;
-    while (dv > *k)
-	k++;
-    d = k - k_max;
-    int m2 = 5 + d;
-    assert(m1 >= 5 && m1 <= 30);
-    assert(m2 >= 5 && m2 <= 30);
-    assert(m2 >= m1);
-    *pm1 = m1;
-    *pm2 = m2;
+    return tab[(n * 0x07C4ACDD) >> 27];
+#endif
+}
+
+static int estimate_m(unsigned dv, int *pm2)
+{
+    int m = log2i(dv);
+    if (m < 5)
+	m = 5;
+    if (m > 30)
+	m = 30;
+    unsigned center2 = (1U << (m + 1)) + (1 << (m - 4)) + (1 << (m - 5)) - 1;
+    unsigned center1 = center2 / 2;
+    unsigned dv1 = center1 + (1U << (m - 2));
+    unsigned dv2 = center2 - (1U << (m - 2));
+    if (dv <= dv1) {
+	*pm2 = m;
+	return m - (m > 5);
+    }
+    if (dv <= dv2)
+	*pm2 = m;
+    else
+	*pm2 = m + (m < 30);
+    return m;
 }
 
 static int encodeInit(const unsigned *v, int n, int bpp, int *pm2)
@@ -156,7 +128,7 @@ static int encodeInit(const unsigned *v, int n, int bpp, int *pm2)
     unsigned dv = (v[n - 1] - n + 1) / n;
 
     /* Select m */
-    int m = 5;
+    int m = *pm2 = 5;
     if (dv < 32) {
 	/*
 	 * It is possible that they try to encode too many values using
@@ -167,9 +139,7 @@ static int encodeInit(const unsigned *v, int n, int bpp, int *pm2)
 	    return -5;
     }
 #if 1
-    /* Select m range */
-    m_range(dv, &m, pm2);
-    return m;
+    return estimate_m(dv, pm2);
 #else
     else {
 	/*
