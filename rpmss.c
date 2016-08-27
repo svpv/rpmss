@@ -84,25 +84,41 @@ static inline int log2i(unsigned n)
 #endif
 }
 
+/*
+ * Estimate m (size of the remainder stored in binary coding) based on
+ * average delta. Either a single m will be used, or, in some cases,
+ * m-1 along with m will be tried.
+ */
 static int estimate_m(unsigned dv, int *pm2)
 {
+    /* This is the first approximation; i.e. when dv >= 64, switch from
+     * m=5 to m=6; when dv >= 1024, switch from m=9 to m=10, and so on. */
     int m = log2i(dv);
-    if (m < 5)
-	m = 5;
+    /* Only called with dv >= 32, no need to check for m < 5. */
     if (m > 30)
-	m = 30;
-    unsigned center2 = (1U << (m + 1)) + (1 << (m - 4)) + (1 << (m - 5)) - 1;
-    unsigned center1 = center2 / 2;
-    unsigned dv1 = center1 + (1U << (m - 2));
-    unsigned dv2 = center2 - (1U << (m - 2));
-    if (dv <= dv1) {
-	*pm2 = m;
+	return *pm2 = 30;
+    /* In the most general case, as shown in [4], the number of optimum m
+     * choices is 2 or 3, to be tried exhaustively.  However, when the source
+     * is geometric (e.g. hash values which look random), there exists
+     * a threshold value for switching from m-1 to m.  The threshold is
+     * slightly to the right of our first approximation; i.e. the rule is
+     * switch from m=5 to m=6 when dv > 66; switch from m=9 to m=10 when
+     * dv > 1071, and so on.  (The threshold can be approximated by starting
+     * with dv=66 and then going on with dv=2*dv+1; this is equivalent to
+     * dv=2^m+2^{m-5}+2^{m-6}-1; this approximation is not in the paper.)
+     * In the vicinity of the threshold, there are fluctuations, so that
+     * either m-1 or m might work best; otherwise, we use m. */
+    *pm2 = m;
+    /* This range is centered around the threshold.
+     * For m=10, the range for double try is [1024, 1120).
+     * On average, less than 1.1 tries will be used. */
+    unsigned range = (1U << m) + (1U << (m - 4)) + (1U << (m - 5));
+    if (dv < range)
 	return m - (m > 5);
-    }
-    if (dv <= dv2)
-	*pm2 = m;
-    else
-	*pm2 = m + (m < 30);
+    /* We generally require dv >= 2^m.  A set-string with dv < 2^m
+     * may be pronounced malformed.  This means we should never try
+     * e.g. m+1=11 for dv=2047, even if it yields a shorter set-string
+     * in a few very rare cases. */
     return m;
 }
 
@@ -128,15 +144,15 @@ static int encodeInit(const unsigned *v, int n, int bpp, int *pm2)
     unsigned dv = (v[n - 1] - n + 1) / n;
 
     /* Select m */
-    int m = *pm2 = 5;
     if (dv < 32) {
 	/*
 	 * It is possible that they try to encode too many values using
 	 * too small bpp range, which will not only result in suboptimal
 	 * encoding, but also can break estmation of n based on bpp and m.
 	 */
-	if (n >= (1 << (bpp - m)))
+	if (n >= (1 << (bpp - 5)))
 	    return -5;
+	return *pm2 = 5;
     }
 #if 1
     return estimate_m(dv, pm2);
