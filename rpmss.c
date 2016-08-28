@@ -105,20 +105,9 @@ static int estimate_m(unsigned dv, int *pm2)
      * switch from m=5 to m=6 when dv > 66; switch from m=9 to m=10 when
      * dv > 1071, and so on.  (The threshold can be approximated by starting
      * with dv=66 and then going on with dv=2*dv+1; this is equivalent to
-     * dv=2^m+2^{m-5}+2^{m-6}-1; this approximation is not in the paper.)
-     * In the vicinity of the threshold, there are fluctuations, so that
-     * either m-1 or m might work best; otherwise, we use m. */
-    *pm2 = m;
-    /* This range is centered around the threshold.
-     * For m=10, the range for double try is [1024, 1120).
-     * On average, less than 1.1 tries will be used. */
-    unsigned range = (1U << m) + (1U << (m - 4)) + (1U << (m - 5));
-    if (dv < range)
-	return m - (m > 5);
-    /* We generally require dv >= 2^m.  A set-string with dv < 2^m
-     * may be pronounced malformed.  This means we should never try
-     * e.g. m+1=11 for dv=2047, even if it yields a shorter set-string
-     * in a few very rare cases. */
+     * dv=2^m+2^{m-5}+2^{m-6}-1; this approximation is not in the paper.) */
+    unsigned range = (1U << m) + (1U << (m - 1));
+    *pm2 = m + 32 - (dv < range && m > 5);
     return m;
 }
 
@@ -209,16 +198,11 @@ int rpmssEncodeInit(const unsigned *v, int n, int bpp)
     if (m < 0)
 	return m;
     int size = encodeSize(v, n, m);
-    int second = 0;
-    for (m++; m <= m2; m++) {
-	int s = encodeSize(v, n, m);
-	if (s > second)
-	    second = s;
+    if (m2 != m) {
+	/* The second string will be placed after the first.
+	 * It had better be aligned. */
+	size += encodeSize(v, n, m2) + 15;
     }
-    /* The second string will be placed after the first.
-     * It had better be aligned. */
-    if (second)
-	size += second + 15;
     return size;
 }
 
@@ -233,13 +217,21 @@ int encode(const unsigned *v, int n, int bpp, int m, char *s)
     *s++ = bpp - 7 + 'a';
     *s++ = m - 5 + 'A';
 
+    /* mm indicates that we're actually dividing by 2^m+2^{m-1};
+     * m is then something like between m and m+1 */
+    int mm = 0;
+    if (m > 32) {
+	m -= 32;
+	mm = 1;
+    }
+
     /* Delta */
     unsigned v0, v1, dv;
     unsigned vmax = v[n - 1];
     const unsigned *v_end = v + n;
 
     /* Golomb */
-    int q;
+    unsigned q;
     unsigned r;
     unsigned rmask = (1u << m) - 1;
 
@@ -260,7 +252,10 @@ int encode(const unsigned *v, int n, int bpp, int m, char *s)
      */
     while (1) {
 	/* Put q */
-	q = dv >> m;
+	if (mm)
+	    q = (dv >> (m - 1)) / 3;
+	else
+	    q = dv >> m;
 	/* Add zero bits */
 	n += q;
 	if (n >= 6) {
@@ -288,9 +283,32 @@ int encode(const unsigned *v, int n, int bpp, int m, char *s)
 	n++;
 
 	/* Put r */
-	r = dv & rmask;
-	b |= (r << n);
-	n += m;
+	if (mm)
+	    r = dv - (q << m) - (q << (m - 1));
+	else
+	    r = dv & rmask;
+	int smallr = 0;
+	if (mm) {
+	    if (r < (1U << (m - 1))) {
+		smallr = 1;
+		r <<= 1;
+		b |= (r << n);
+		n += m;
+	    }
+	    else {
+		r += (1U << (m - 1));
+		/* Need to store it in prefix code: put the highest bit first. */
+		r <<= 1;
+		r &= (rmask << 1);
+		r |= 1;
+		b |= (r << n);
+		n += m + 1;
+	    }
+	}
+	else {
+	    b |= (r << n);
+	    n += m;
+	}
 
 	/* Got at least 6 bits (due to m >= 5), ready to flush */
 	do {
@@ -309,7 +327,14 @@ int encode(const unsigned *v, int n, int bpp, int m, char *s)
 		break;
 	    }
 	    /* First run consumes non-r part completely, see above */
-	    b = r >> (m - n);
+	    if (mm) {
+		if (smallr)
+		    b = r >> (m - n);
+		else
+		    b = r >> (m + 1 - n);
+	    }
+	    else
+		b = r >> (m - n);
 	} while (n >= 6);
 
 	/* Flush pending irregular case */
@@ -363,9 +388,9 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
     if (m < 0)
 	return m;
     int len = encode(v, n, bpp, m, s);
-    for (m++; m <= m2; m++) {
+    if (m != m2) {
 	char *s2 = s + ((len + 16) & ~15);
-	int len2 = encode(v, n, bpp, m, s2);
+	int len2 = encode(v, n, bpp, m2, s2);
 	if (len2 < len) {
 	    memcpy(s, s2, len2 + 1);
 	    len = len2;
@@ -380,8 +405,10 @@ static int decodeInit(const char *s, int *pbpp)
     if (bpp < 7 || bpp > 32)
 	return -1;
     int m = *s++ - 'A' + 5;
+    if (m < 32)
     if (m < 5 || m > 30)
 	return -2;
+    if (m < 32)
     if (m >= bpp)
 	return -3;
     if (*s == '\0')
@@ -409,16 +436,23 @@ int rpmssDecodeInit(const char *s, int len, int *pbpp)
     int m = decodeInit(s, pbpp);
     if (m < 0)
 	return m;
+    if (m > 32)
+	m -= 32;
+#if 0
     /* XXX validate len */
     int n1 = (1 << (*pbpp - m)) - 1;
+#endif
     /* Each character will fill at most 6 bits */
     int bits = (len - 2) * 6;
     /* Each (m + 1) bits can make a value */
     int n2 = bits / (m + 1);
+#if 0
     /* Whichever smaller */
     if (n2 < n1)
 	return n2;
     return n1;
+#endif
+    return n2;
 }
 
 // Word types (when two bytes from base62 string cast to unsigned short).
@@ -525,6 +559,11 @@ int rpmssDecode(const char *s, unsigned *v)
     int m = decodeInit(s, &bpp);
     if (m < 0)
 	return m;
+    int mm = 0;
+    if (m > 32) {
+	m -= 32;
+	mm = 1;
+    }
     // delta
     unsigned v0 = (unsigned) -1;
     unsigned v1, dv;
@@ -649,8 +688,28 @@ getR:
 	int left = rfill - m; \
 	if (left < 0) \
 	    goto getR; \
-	r &= rmask; \
-	dv = (q << m) | r; \
+	if (mm) { \
+	    if ((r & 1) == 0) { \
+		r &= rmask; \
+		r >>= 1; \
+	    } \
+	    else { \
+		if (left == 0) { \
+		    goto getR; \
+		} \
+		left--; \
+		r >>= 1; \
+		r &= rmask; \
+		r |= (1U << m); \
+		r -= (1U << (m - 1)); \
+	    } \
+	} \
+	else \
+	    r &= rmask; \
+	if (mm) \
+	    dv = (q << (m - 1)) * 3 + r; \
+	else \
+	    dv = (q << m) | r; \
 	v0++; \
 	if (v == 0 && v != v_start) \
 	    return -10; \
