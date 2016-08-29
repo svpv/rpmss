@@ -108,11 +108,13 @@ static int encodeInit(const unsigned *v, int n, int bpp)
     /* Select m */
     int m = 5;
     if (dv < 32) {
-	/*
-	 * It is possible that they try to encode too many values using
-	 * too small bpp range, which will not only result in suboptimal
-	 * encoding, but also can break estmation of n based on bpp and m.
-	 */
+	/* Average dv is too small, v[] cannot be represented efficiently
+	 * with m=5.  This can happen simply by chance (all hash values turn
+	 * out to be small), in which case we have to support it.  On the other
+	 * hand, it is possible that they try to encode too many values using
+	 * too small bpp range, which we prohibit.  We generally require
+	 * n < 2^{bpp-m} (see below).  It gives a lower bound for bpp:
+	 * to encode n < 2^k values, use bpp >= k + 5. */
 	if (n >= (1 << (bpp - m)))
 	    return -5;
     }
