@@ -48,6 +48,19 @@
  * ranges are 7..32 and 5..30, respectively.  Also, valid m must be less
  * than bpp.  The rest ("xyz...") is a variable-length encoded sequence.
  *
+ * The main priority in this implementation has been the decoding speed
+ * (so that the test for unmet dependencies, such as performed by
+ * "apt-cache unmet", can be done in a second).  Some implementation
+ * possibilities and optimizations have been considered and rejected.
+ * Using base64 encoding could have immediately made set-strings shorter
+ * by 1%; however, base64 would look ugly in rpm dependencies.  Using
+ * true base-62 conversion (as in the GNU GMP library) could have saved
+ * 0.28%.  Using base3844 encoding (two alnum characters as a single
+ * number), on the other hand, could have saved only 0.016%.  Finally,
+ * "real Golomb" codes have once been implemented, which use 2^m+2^{m-1}
+ * as the divisor, to be used along with Golomb-Rice 2^m codes; those
+ * can save 0.14%.
+ *
  * References
  * [1] Felix Putze, Peter Sanders, Johannes Singler (2007)
  *     Cache-, Hash- and Space-Efficient Bloom Filters
