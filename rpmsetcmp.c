@@ -87,7 +87,9 @@ static int setcmp(const unsigned *v1, int n1, const unsigned *v2, int n2)
 	    break;		\
 	v2val = *v2;		\
     }
-    /* choose the right stepper */
+    /* Choose the right stepper.  We can safely multiply by 16 here, see
+     * a comment on the maximum set-string size in rpmss.c:encodeInit().
+     * The constant is derived empirically. */
     if (n1 >= 16 * n2) {
 	while (1) {
 	    IFLT8;

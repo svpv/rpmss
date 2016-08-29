@@ -139,15 +139,18 @@ static int encodeInit(const unsigned *v, int n, int bpp)
 	    m--;
     }
 
-    /*
-     * By construction, 2^m < dv < 2^{bpp}/n, which implies n < 2^{bpp-m}.
-     * When bpp and m are known, we can use this to estimate maximum n.
-     * Also, note that the sum of n deltas cannot overflow bpp range.
-     */
+    /* By construction, 2^m < dv < 2^{bpp}/n, which implies n < 2^{bpp-m}.
+     * When bpp and m are known, we can use this to estimate maximum n. */
     assert(n < (1 << (bpp - m)));
 
-    /* This also implies that m < bpp */
+    /* This also implies that m < bpp. */
     assert(m < bpp);
+
+    /* This also gives the maximum set-string size, mentioned here for lack
+     * of a better place.  A set-string can hold at most 2^{32-5}-1 = 128M-1
+     * values (and the length of such a string will be about 130M).
+     * Corollary: if "int n" is the number of values in a decoded v[],
+     * n can be safely multiplied by 16 (without integer overflow). */
     return m;
 }
 
