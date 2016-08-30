@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-/** \ingroup rpmss
+/**
  * Estimate string buffer size for encoding.
  * @param v		the values, sorted and unique
  * @param n		number of values
@@ -32,7 +32,7 @@ extern "C" {
  */
 int rpmssEncodeInit(const unsigned *v, int n, int bpp);
 
-/** \ingroup rpmss
+/**
  * Encode a set of numeric values into a set-string.
  * @param v		the values, sorted and unique
  * @param n		number of values
@@ -42,7 +42,7 @@ int rpmssEncodeInit(const unsigned *v, int n, int bpp);
  */
 int rpmssEncode(const unsigned *v, int n, int bpp, char *s);
 
-/** \ingroup rpmss
+/**
  * Initialize decoding.  The second routine requires the string length
  * to be known in adavnce while providing tighter size estimates.
  * @param s		alnum string to decode, null-terminated
@@ -52,7 +52,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s);
  */
 int rpmssDecodeInit(const char *s, int len, int *pbpp);
 
-/** \ingroup rpmss
+/**
  * Decode the set-string values.
  * @param s		set-string to decode, null-terminated
  * @param v		decoded values, sorted and unique
