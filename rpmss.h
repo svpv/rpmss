@@ -24,38 +24,37 @@ extern "C" {
 #endif
 
 /**
- * Estimate string buffer size for encoding.
+ * Initialize encoding; estimate string buffer size.
  * @param v		the values, sorted and unique
  * @param n		number of values
  * @param bpp		actual bits per value, 7..32
- * @return		buffer size for encoding, < 0 on error
+ * @return		output buffer size (incl. '\0'), < 0 on error
  */
 int rpmssEncodeInit(const unsigned *v, int n, int bpp);
 
 /**
- * Encode a set of numeric values into a set-string.
+ * Squeeze a set of numeric values into a set-string.
  * @param v		the values, sorted and unique
  * @param n		number of values
  * @param bpp		actual bits per value, 7..32
- * @param s		alnum output, null-terminated on success
- * @return		alnum string length, < 0 on error
+ * @retval s		alnum output, null-terminated on success
+ * @return		output string length, < 0 on error
  */
 int rpmssEncode(const unsigned *v, int n, int bpp, char *s);
 
 /**
- * Initialize decoding.  The second routine requires the string length
- * to be known in adavnce while providing tighter size estimates.
+ * Initialize decoding; estimate the number of values in a set.
  * @param s		alnum string to decode, null-terminated
  * @param len		alnum string length, i.e. strlen(s)
- * @param pbpp		original bits per value
+ * @retval pbpp		original bits per value
  * @return		number of values (upper bound), < 0 on error
  */
 int rpmssDecodeInit(const char *s, int len, int *pbpp);
 
 /**
- * Decode the set-string values.
+ * Bring back the set of numeric values out of a set-string.
  * @param s		set-string to decode, null-terminated
- * @param v		decoded values, sorted and unique
+ * @retval v		decoded values, sorted and unique
  * @return		number of values, < 0 on error
  */
 int rpmssDecode(const char *s, unsigned *v);
