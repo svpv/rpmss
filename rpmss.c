@@ -115,7 +115,10 @@ static int encodeInit(const unsigned *v, int n, int bpp)
     if (v[n - 1] < (unsigned) n - 1)
 	return -4;
 
-    /* Average delta */
+    /* Calculate average delta.  The first hunch is to try v[n-1] / n,
+     * but recall that each delta automatically implies "+1", except
+     * for the first one.  In other words, deltas must add up to
+     * v[n-1] - n + 1, not v[n-1].  Still, with n=1, average dv is v[0]. */
     unsigned dv = (v[n - 1] - n + 1) / n;
 
     /* Select m */
@@ -176,10 +179,15 @@ int rpmssEncodeInit(const unsigned *v, int n, int bpp)
     /* Need at least (m + 1) bits per value */
     int bits1 = n * (m + 1);
 
-    /*
-     * The second term is much tricker: assuming that remainders are small,
-     * q deltas must have enough room to cover the whole range.
-     */
+    /* The second term is much trickier.  Imagine that deltas somehow "cover"
+     * the range from 0 to v[n-1].  Also, recall that deltas must add up to
+     * v[n-1] - n + 1.  Now assume that the remainder in each delta is very
+     * small; more precisely, zero.  Deltas cover the range in a somewhat
+     * inefficient manner, by using only unary-coded q; those q bits then
+     * must have enough room to cover the whole range.  Each q bit covers
+     * 2^m; therefore, in the worst case, we need that many q bits.  One
+     * additional q bit, due to the rounding down, is not needed; that would
+     * make deltas add up to more than they possibly can. */
     int bits2 = (v[n - 1] - n + 1) >> m;
 
     /*
