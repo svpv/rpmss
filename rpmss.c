@@ -162,11 +162,13 @@ static int encodeInit(const unsigned *v, int n, int bpp)
     /* This also implies that m < bpp. */
     assert(m < bpp);
 
-    /* This also gives the maximum set-string size, mentioned here for lack
-     * of a better place.  A set-string can hold at most 2^{32-5}-1 = 128M-1
-     * values (and the length of such a string will be about 130M).
-     * Corollary: if "int n" is the number of values in a decoded v[],
-     * n can be safely multiplied by 16 (without integer overflow). */
+    /* This also gives the maximum set-string size.  A set-string can hold
+     * at most 2^{32-5}-1 = 128M-1 values (and the length of such a string
+     * would be about 130M).  Corollary: if "int n" is the number of values
+     * in a decoded v[] set, n can be safely multiplied by 16 (without
+     * integer overflow). */
+    assert(n < (1 << 27));
+
     return m;
 }
 
