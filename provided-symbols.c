@@ -50,7 +50,10 @@ int main(int argc, char **argv)
     Dwarf *dwarf = dwfl_module_getdwarf(m, &bias);
     assert(dwarf);
     int nsym = dwfl_module_getsymtab(m);
-    for (int i = 0; i < nsym; i++) {
+    int sym1 = dwfl_module_getsymtab_first_global(m);
+    assert(nsym > 0);
+    assert(sym1 >= 0 && sym1 < nsym);
+    for (int i = sym1; i < nsym; i++) {
 	GElf_Sym sym;
 	const char *name = dwfl_module_getsym(m, i, &sym, NULL);
 	if (provided(&sym, name))
