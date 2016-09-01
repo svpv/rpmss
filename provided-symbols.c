@@ -52,6 +52,84 @@ static int provcmp(const void *x1, const void *x2)
     return 0;
 }
 
+static char *funcproto(Dwarf_Die *die)
+{
+    static char buf[128];
+    char *p = buf;
+    *p++ = '(';
+
+    Dwarf_Die kid;
+    if (dwarf_child(die, &kid) != 0)
+	goto ret;
+    do {
+	if (dwarf_tag(&kid) != DW_TAG_formal_parameter)
+	    continue;
+	Dwarf_Attribute abuf;
+	Dwarf_Attribute *attr = dwarf_attr(&kid, DW_AT_type, &abuf);
+	if (attr == NULL)
+	    return NULL;
+	Dwarf_Die tbuf;
+	Dwarf_Die *type = dwarf_formref_die(attr, &tbuf);
+	if (type == NULL)
+	    return NULL;
+	if (dwarf_peel_type(type, type) != 0)
+	    return NULL;
+	if (p > buf + 1) {
+	    *p++ = ',';
+	    *p++ = ' ';
+	}
+	if (dwarf_tag(type) == DW_TAG_pointer_type)
+	    *p++ = 'p';
+	else
+	    *p++ = 'i';
+    }
+    while (dwarf_siblingof(&kid, &kid) == 0);
+ret:
+    *p++ = ')';
+    *p++ = '\0';
+    return buf;
+}
+
+static void print_func_0(const char *name, int namelen,
+			 const char *ver, const char *proto)
+{
+    printf("func %.*s%s%s%s%s", namelen, name,
+	    ver ? ver : "",
+	    proto ? "\t" : "\n",
+	    proto ? proto : "",
+	    proto ? "\n" : "");
+}
+
+/* For default symbol foo@@VER, also print foo without VER. */
+static int compat_nover;
+
+/* For foo(proto), also print foo without proto. */
+static int compat_noproto;
+
+static void print_func_1(const char *name, const char *proto)
+{
+    const char *ver = strchr(name, '@');
+    if (ver && ver[1] == '@') {
+	/* default version */
+	print_func_0(name, ver - name, ver + 1, proto);
+	if (compat_nover)
+	    print_func_0(name, ver - name, NULL, proto);
+    }
+    else
+	print_func_0(name, strlen(name), NULL, proto);
+}
+
+void print_func(struct symx *symx, Dwarf_Die *die)
+{
+    const char *proto = NULL;
+    /* We do not use proto for mangled symbols. */
+    if (!(symx->name[0] == '_' && symx->name[1] == 'Z'))
+	proto = funcproto(die);
+    print_func_1(symx->name, proto);
+    if (proto && compat_noproto)
+	print_func_1(symx->name, NULL);
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -136,7 +214,10 @@ int main(int argc, char **argv)
 	    while (symx > prov && symx[-1].sym.st_value == key.sym.st_value)
 		symx--;
 	    do {
-		puts(symx->name);
+		if (tag == DW_TAG_subprogram)
+		    print_func(symx, &kid);
+		else
+		    puts(symx->name);
 		symx->done = 1;
 		symx++;
 	    }
