@@ -101,7 +101,8 @@ int main(int argc, char **argv)
 	    int tag = dwarf_tag(&kid);
 	    struct symx key;
 	    if (tag == DW_TAG_subprogram) {
-		if (dwarf_lowpc(&kid, &key.sym.st_value) != 0)
+		Dwarf_Addr base, end;
+		if (dwarf_ranges(&kid, 0, &base, &key.sym.st_value, &end) < 1)
 		    continue;
 	    }
 	    else if (tag == DW_TAG_variable) {
