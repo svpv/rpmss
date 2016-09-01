@@ -133,8 +133,14 @@ int main(int argc, char **argv)
 				    name, key.sym.st_value);
 		continue;
 	    }
-	    puts(symx->name);
-	    symx->done = 1;
+	    while (symx > prov && symx[-1].sym.st_value == key.sym.st_value)
+		symx--;
+	    do {
+		puts(symx->name);
+		symx->done = 1;
+		symx++;
+	    }
+	    while (symx < prov + nprov && symx->sym.st_value == key.sym.st_value);
 	}
 	while (dwarf_siblingof(&kid, &kid) == 0);
     }
