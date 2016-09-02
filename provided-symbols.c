@@ -6,7 +6,7 @@
 #include <dwarf.h>
 #include <elfutils/libdwfl.h>
 
-static int provided(GElf_Sym *sym, const char *name)
+static bool provided(GElf_Sym *sym, const char *name)
 {
     return
 	/* dl-lookup.c: /st_value */
@@ -38,7 +38,7 @@ static int provided(GElf_Sym *sym, const char *name)
 struct symx {
     GElf_Sym sym;
     const char *name;
-    int done;
+    bool done;
 };
 
 /* Sort provided symbols by address. */
@@ -183,10 +183,10 @@ static void print_sym_0(const char *what,
 }
 
 /* For default symbol foo@@VER, also print foo without VER. */
-static int compat_nover;
+static bool compat_nover;
 
 /* For foo(proto), also print foo without proto. */
-static int compat_noproto;
+static bool compat_noproto;
 
 static void print_sym_1(const char *what, const char *name, const char *proto)
 {
@@ -225,7 +225,7 @@ static void print_var(struct symx *symx, Dwarf_Die *die)
 
 #include <getopt.h>
 
-static int verbose;
+static bool verbose;
 
 static const char *argv1(int argc, char **argv)
 {
@@ -353,7 +353,7 @@ int main(int argc, char **argv)
 		    print_func(symx, &kid);
 		else
 		    print_var(symx, &kid);
-		symx->done = 1;
+		symx->done = true;
 		symx++;
 	    }
 	    while (symx < prov + nprov && symx->sym.st_value == key.sym.st_value);
