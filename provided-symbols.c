@@ -52,7 +52,7 @@ static int provcmp(const void *x1, const void *x2)
     return 0;
 }
 
-static char *funcproto(Dwarf_Die *die)
+static char *funcproto(Dwarf_Die *die, const char *name)
 {
     static char buf[128];
     char *p = buf;
@@ -66,14 +66,16 @@ static char *funcproto(Dwarf_Die *die)
 	    continue;
 	Dwarf_Attribute abuf;
 	Dwarf_Attribute *attr = dwarf_attr(&kid, DW_AT_type, &abuf);
-	if (attr == NULL)
+	if (attr == NULL) {
+noarg:	    fprintf(stderr, "cannot parse args for %s\n", name);
 	    return NULL;
+	}
 	Dwarf_Die tbuf;
 	Dwarf_Die *type = dwarf_formref_die(attr, &tbuf);
 	if (type == NULL)
-	    return NULL;
+	    goto noarg;
 	if (dwarf_peel_type(type, type) != 0)
-	    return NULL;
+	    goto noarg;
 	if (p > buf + 1) {
 	    *p++ = ',';
 	    *p++ = ' ';
@@ -124,7 +126,7 @@ void print_func(struct symx *symx, Dwarf_Die *die)
     const char *proto = NULL;
     /* We do not use proto for mangled symbols. */
     if (!(symx->name[0] == '_' && symx->name[1] == 'Z'))
-	proto = funcproto(die);
+	proto = funcproto(die, symx->name);
     print_func_1(symx->name, proto);
     if (proto && compat_noproto)
 	print_func_1(symx->name, NULL);
