@@ -92,10 +92,35 @@ ret:
     return buf;
 }
 
-static void print_func_0(const char *name, int namelen,
-			 const char *ver, const char *proto)
+static char *varproto(Dwarf_Die *die, const char *name)
 {
-    printf("func %.*s%s%s%s%s", namelen, name,
+    static char buf[128];
+    char *p = buf;
+    Dwarf_Attribute abuf;
+    Dwarf_Attribute *attr = dwarf_attr_integrate(die, DW_AT_type, &abuf);
+    if (attr == NULL) {
+notype: fprintf(stderr, "cannot parse type for %s\n", name);
+	return NULL;
+    }
+    Dwarf_Die tbuf;
+    Dwarf_Die *type = dwarf_formref_die(attr, &tbuf);
+    if (type == NULL)
+	goto notype;
+    if (dwarf_peel_type(type, type) != 0)
+	goto notype;
+    if (dwarf_tag(type) == DW_TAG_pointer_type)
+	*p++ = 'p';
+    else
+	*p++ = 'i';
+    *p++ = '\0';
+    return buf;
+}
+
+static void print_sym_0(const char *what,
+			const char *name, int namelen,
+			const char *ver, const char *proto)
+{
+    printf("%s\t%.*s%s%s%s%s", what, namelen, name,
 	    ver ? ver : "",
 	    proto ? "\t" : "\n",
 	    proto ? proto : "",
@@ -108,28 +133,39 @@ static int compat_nover;
 /* For foo(proto), also print foo without proto. */
 static int compat_noproto;
 
-static void print_func_1(const char *name, const char *proto)
+static void print_sym_1(const char *what, const char *name, const char *proto)
 {
     const char *ver = strchr(name, '@');
     if (ver && ver[1] == '@') {
 	/* default version */
-	print_func_0(name, ver - name, ver + 1, proto);
+	print_sym_0(what, name, ver - name, ver + 1, proto);
 	if (compat_nover)
-	    print_func_0(name, ver - name, NULL, proto);
+	    print_sym_0(what, name, ver - name, NULL, proto);
     }
     else
-	print_func_0(name, strlen(name), NULL, proto);
+	print_sym_0(what, name, strlen(name), NULL, proto);
 }
 
-void print_func(struct symx *symx, Dwarf_Die *die)
+static void print_sym_2(const char *what, struct symx *symx, Dwarf_Die *die,
+			char *(*getproto)(Dwarf_Die *die, const char *name))
 {
     const char *proto = NULL;
     /* We do not use proto for mangled symbols. */
     if (!(symx->name[0] == '_' && symx->name[1] == 'Z'))
-	proto = funcproto(die, symx->name);
-    print_func_1(symx->name, proto);
+	proto = getproto(die, symx->name);
+    print_sym_1(what, symx->name, proto);
     if (proto && compat_noproto)
-	print_func_1(symx->name, NULL);
+	print_sym_1(what, symx->name, NULL);
+}
+
+static void print_func(struct symx *symx, Dwarf_Die *die)
+{
+    print_sym_2("func", symx, die, funcproto);
+}
+
+static void print_var(struct symx *symx, Dwarf_Die *die)
+{
+    print_sym_2("var", symx, die, varproto);
 }
 
 #include <getopt.h>
@@ -259,7 +295,7 @@ int main(int argc, char **argv)
 		if (tag == DW_TAG_subprogram)
 		    print_func(symx, &kid);
 		else
-		    puts(symx->name);
+		    print_var(symx, &kid);
 		symx->done = 1;
 		symx++;
 	    }
