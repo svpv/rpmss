@@ -53,6 +53,14 @@ static int provcmp(const void *x1, const void *x2)
     return 0;
 }
 
+static const char *getname(Dwarf_Die *die)
+{
+    Dwarf_Attribute attr;
+    if (dwarf_attr(die, DW_AT_name, &attr) == NULL)
+	return NULL;
+    return dwarf_formstring(&attr);
+}
+
 static Dwarf_Die *gettype(Dwarf_Die *var, Dwarf_Die *type)
 {
     Dwarf_Attribute attr;
@@ -115,6 +123,16 @@ intx:	/* Arguments are passed in full words, via registers
 	    p += sprintf(p, "i%lu", size);
 	return p;
     case DW_ATE_float:
+	/* On x86, sizeof(80-bit long double) == 12.
+	 * For our purposes, 10 looks more natural. */
+	if (size == 12 && ehdr.e_machine == EM_386)
+	    size = 10;
+	/* On x86-64, sizeof(80-bit long double) == 16. */
+	if (size == 16 && ehdr.e_machine == EM_X86_64) {
+	    const char *name = getname(type);
+	    if (name && strcmp(name, "long double") == 0)
+		size = 10;
+	}
 	p += sprintf(p, "f%lu", size);
 	return p;
     }
@@ -337,9 +355,7 @@ int main(int argc, char **argv)
 	    key.sym.st_value += bias;
 	    struct symx *symx = bsearch(&key, prov, nprov, sizeof(*prov), provcmp);
 	    if (!symx) {
-		Dwarf_Attribute abuf;
-		Dwarf_Attribute *attr = dwarf_attr(&kid, DW_AT_name, &abuf);
-		const char *name = dwarf_formstring(attr);
+		const char *name = getname(&kid);
 		if (name && verbose)
 		    fprintf(stderr, "nothing for %s %s %lx\n",
 				    tag == DW_TAG_subprogram ? "func" : "var",
