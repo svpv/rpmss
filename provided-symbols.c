@@ -65,7 +65,7 @@ static char *funcproto(Dwarf_Die *die, const char *name)
 	if (dwarf_tag(&kid) != DW_TAG_formal_parameter)
 	    continue;
 	Dwarf_Attribute abuf;
-	Dwarf_Attribute *attr = dwarf_attr(&kid, DW_AT_type, &abuf);
+	Dwarf_Attribute *attr = dwarf_attr_integrate(&kid, DW_AT_type, &abuf);
 	if (attr == NULL) {
 noarg:	    fprintf(stderr, "cannot parse args for %s\n", name);
 	    return NULL;
