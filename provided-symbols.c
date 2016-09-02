@@ -130,9 +130,49 @@ void print_func(struct symx *symx, Dwarf_Die *die)
 	print_func_1(symx->name, NULL);
 }
 
+#include <getopt.h>
+
+static int verbose;
+
+static const char *argv1(int argc, char **argv)
+{
+    enum {
+	OPT_COMPAT_NOVER = 256,
+	OPT_COMPAT_NOPROTO,
+    };
+    static const struct option longopts[] = {
+	{ "verbose", 0, NULL, 'v' },
+	{ "compat-nover", 0, NULL, OPT_COMPAT_NOVER },
+	{ "compat-noproto", 0, NULL, OPT_COMPAT_NOPROTO },
+    };
+    int c;
+    while ((c = getopt_long(argc, argv, "v", longopts, NULL)) != -1) {
+	switch (c) {
+	case 'v':
+	    verbose = 1;
+	    break;
+	case OPT_COMPAT_NOVER:
+	    compat_nover = 1;
+	    break;
+	case OPT_COMPAT_NOPROTO:
+	    compat_noproto = 1;
+	    break;
+	default:
+	    goto usage;
+	}
+    }
+    argc -= optind;
+    argv += optind;
+    if (argc != 1) {
+usage:	fputs("Usage: provided-symbols lib.so\n", stderr);
+	exit(1);
+    }
+    return *argv;
+}
+
 int main(int argc, char **argv)
 {
-    assert(argc == 2);
+    const char *file = argv1(argc, argv);
     static const Dwfl_Callbacks cb = {
 	.section_address = dwfl_offline_section_address,
 	.find_debuginfo	 = dwfl_standard_find_debuginfo,
@@ -140,7 +180,7 @@ int main(int argc, char **argv)
     };
     Dwfl *dwfl = dwfl_begin(&cb);
     assert(dwfl);
-    Dwfl_Module *m = dwfl_report_offline(dwfl, argv[1], argv[1], -1);
+    Dwfl_Module *m = dwfl_report_offline(dwfl, file, file, -1);
     assert(m);
     GElf_Addr bias;
     Elf *elf = dwfl_module_getelf(m, &bias);
@@ -205,7 +245,7 @@ int main(int argc, char **argv)
 		Dwarf_Attribute abuf;
 		Dwarf_Attribute *attr = dwarf_attr(&kid, DW_AT_name, &abuf);
 		const char *name = dwarf_formstring(attr);
-		if (name)
+		if (name && verbose)
 		    fprintf(stderr, "nothing for %s %s %lx\n",
 				    tag == DW_TAG_subprogram ? "func" : "var",
 				    name, key.sym.st_value);
