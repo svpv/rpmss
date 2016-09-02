@@ -25,4 +25,4 @@ gen_kiely_k_LDADD = -lm
 gen_kiely_k_CFLAGS = $(AM_CFLAGS) -Ofast
 
 provided_symbols_SOURCES = provided-symbols.c
-provided_symbols_LDADD = -ldw
+provided_symbols_LDADD = -ldw -lelf

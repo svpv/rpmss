@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <assert.h>
 #include <dwarf.h>
@@ -52,6 +53,76 @@ static int provcmp(const void *x1, const void *x2)
     return 0;
 }
 
+static Dwarf_Die *gettype(Dwarf_Die *var, Dwarf_Die *type)
+{
+    Dwarf_Attribute attr;
+    if (dwarf_attr_integrate(var, DW_AT_type, &attr) == NULL)
+	return NULL;
+    if (dwarf_formref_die(&attr, type) == NULL)
+	return NULL;
+    if (dwarf_peel_type(type, type) != 0)
+	return NULL;
+    return type;
+}
+
+static GElf_Ehdr ehdr;
+
+static char *puttype(char *p, Dwarf_Die *type, bool arg)
+{
+    /* In function arguments, arrays decay into pointers.
+     * Otherwise, array type depends on its element. */
+    if (!arg && dwarf_tag(type) == DW_TAG_array_type) {
+	*p++ = 'a';
+	if (gettype(type, type) == NULL)
+	    return NULL;
+    }
+    switch (dwarf_tag(type)) {
+    case DW_TAG_array_type:
+    case DW_TAG_pointer_type:
+	*p++ = 'p';
+	return p;
+    }
+    Dwarf_Word size;
+    if (dwarf_aggregate_size(type, &size) != 0 || size < 1)
+	return NULL;
+    Dwarf_Word wordsize = 4 * ehdr.e_ident[EI_CLASS];
+    assert(wordsize > 0);
+    switch (dwarf_tag(type)) {
+    case DW_TAG_enumeration_type:
+	goto intx;
+    case DW_TAG_base_type:
+	break;
+    default:
+	goto blob;
+    }
+    Dwarf_Attribute attr;
+    if (dwarf_attr(type, DW_AT_encoding, &attr) == NULL)
+	return NULL;
+    Dwarf_Word enc;
+    if (dwarf_formudata(&attr, &enc) != 0)
+	return NULL;
+    switch (enc) {
+    case DW_ATE_boolean:
+    case DW_ATE_signed:
+    case DW_ATE_unsigned:
+    case DW_ATE_signed_char:
+    case DW_ATE_unsigned_char:
+intx:	/* Arguments are passed in full words, via registers
+	 * or due to stack alignment. */
+	if (arg && size <= wordsize)
+	    *p++ = 'i';
+	else
+	    p += sprintf(p, "i%lu", size);
+	return p;
+    case DW_ATE_float:
+	p += sprintf(p, "f%lu", size);
+	return p;
+    }
+blob:
+    p += sprintf(p, "b%lu", size);
+    return p;
+}
+
 static char *funcproto(Dwarf_Die *die, const char *name)
 {
     static char buf[128];
@@ -64,26 +135,18 @@ static char *funcproto(Dwarf_Die *die, const char *name)
     do {
 	if (dwarf_tag(&kid) != DW_TAG_formal_parameter)
 	    continue;
-	Dwarf_Attribute abuf;
-	Dwarf_Attribute *attr = dwarf_attr_integrate(&kid, DW_AT_type, &abuf);
-	if (attr == NULL) {
+	Dwarf_Die type;
+	if (gettype(&kid, &type) == NULL) {
 noarg:	    fprintf(stderr, "cannot parse args for %s\n", name);
 	    return NULL;
 	}
-	Dwarf_Die tbuf;
-	Dwarf_Die *type = dwarf_formref_die(attr, &tbuf);
-	if (type == NULL)
-	    goto noarg;
-	if (dwarf_peel_type(type, type) != 0)
-	    goto noarg;
 	if (p > buf + 1) {
 	    *p++ = ',';
 	    *p++ = ' ';
 	}
-	if (dwarf_tag(type) == DW_TAG_pointer_type)
-	    *p++ = 'p';
-	else
-	    *p++ = 'i';
+	p = puttype(p, &type, 1);
+	if (p == NULL)
+	    goto noarg;
     }
     while (dwarf_siblingof(&kid, &kid) == 0);
 ret:
@@ -96,22 +159,14 @@ static char *varproto(Dwarf_Die *die, const char *name)
 {
     static char buf[128];
     char *p = buf;
-    Dwarf_Attribute abuf;
-    Dwarf_Attribute *attr = dwarf_attr_integrate(die, DW_AT_type, &abuf);
-    if (attr == NULL) {
+    Dwarf_Die type;
+    if (gettype(die, &type) == NULL) {
 notype: fprintf(stderr, "cannot parse type for %s\n", name);
 	return NULL;
     }
-    Dwarf_Die tbuf;
-    Dwarf_Die *type = dwarf_formref_die(attr, &tbuf);
-    if (type == NULL)
+    p = puttype(p, &type, 0);
+    if (p == NULL)
 	goto notype;
-    if (dwarf_peel_type(type, type) != 0)
-	goto notype;
-    if (dwarf_tag(type) == DW_TAG_pointer_type)
-	*p++ = 'p';
-    else
-	*p++ = 'i';
     *p++ = '\0';
     return buf;
 }
@@ -223,6 +278,8 @@ int main(int argc, char **argv)
     GElf_Addr bias;
     Elf *elf = dwfl_module_getelf(m, &bias);
     assert(elf);
+    if (gelf_getehdr(elf, &ehdr) == NULL)
+	assert(!"ehdr");
     Dwarf *dwarf = dwfl_module_getdwarf(m, &bias);
     assert(dwarf);
 
