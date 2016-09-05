@@ -38,6 +38,8 @@ static bool provided(GElf_Sym *sym, const char *name)
 struct symx {
     GElf_Sym sym;
     const char *name;
+    const char *ver;
+    bool defaultver;
     bool done;
 };
 
@@ -51,6 +53,97 @@ static int provcmp(const void *x1, const void *x2)
     if (s1->sym.st_value < s2->sym.st_value)
 	return -1;
     return 0;
+}
+
+/* The elf header, to find out EI_CLASS and e_machine. */
+static GElf_Ehdr ehdr;
+
+/* Provided symbols. */
+int nprov;
+struct symx *prov = NULL;
+
+/* Provided symbols are gathered from the ld.so's point of view.
+ * That is, we use dynsym along with versym/verdef, not symtab. */
+void gather_prov(Elf *elf)
+{
+    /* Get the elf header. */
+    void *ret = gelf_getehdr(elf, &ehdr);
+    assert(ret);
+    /* Find sections. */
+    Elf_Data *dynsym_data = NULL;
+    Elf_Data *versym_data = NULL;
+    Elf_Data *verdef_data = NULL;
+    Elf32_Word dynsym_link = 0;
+    Elf32_Word verdef_link = 0;
+    Elf_Scn *scn = NULL;
+    int nsym = 0;
+    while (1) {
+	scn = elf_nextscn(elf, scn);
+	if (scn == NULL)
+	    break;
+	GElf_Shdr sh;
+	ret = gelf_getshdr(scn, &sh);
+	assert(ret);
+	if (sh.sh_type == SHT_DYNSYM) {
+	    dynsym_data = elf_getdata(scn, NULL);
+	    dynsym_link = sh.sh_link;
+	    assert(sh.sh_entsize > 0);
+	    nsym = sh.sh_size / sh.sh_entsize;
+	}
+	else if (sh.sh_type == SHT_GNU_versym) {
+	    versym_data = elf_getdata(scn, NULL);
+	}
+	else if (sh.sh_type == SHT_GNU_verdef) {
+	    verdef_data = elf_getdata(scn, NULL);
+	    verdef_link = sh.sh_link;
+	}
+    }
+    assert(dynsym_data);
+    assert(nsym > 0);
+    /* Iterate symbols. */
+    for (int i = 1; i < nsym; i++) {
+	GElf_Sym sym;
+	ret = gelf_getsym(dynsym_data, i, &sym);
+	assert(ret);
+	const char *name = elf_strptr(elf, dynsym_link, sym.st_name);
+	assert(name);
+	if (!provided(&sym, name))
+	    continue;
+	/* Deal with versioned symbols. */
+	const char *ver = NULL;
+	bool defaultver = false;
+	if (versym_data) {
+	    GElf_Versym versym;
+	    ret = gelf_getversym(versym_data, i, &versym);
+	    assert(ret);
+	    defaultver = (versym & 0x8000) == 0;
+	    versym &= 0x7fff;
+	    assert(versym > 0);
+	    if (versym > 1) {
+		GElf_Verdef vd;
+		size_t vdoff = 0;
+		while (1) {
+		    ret = gelf_getverdef(verdef_data, vdoff, &vd);
+		    assert(ret);
+		    if (vd.vd_ndx == versym)
+			break; /* found */
+		    assert(vd.vd_next > 0);
+		    vdoff += vd.vd_next;
+		}
+		GElf_Verdaux verdaux;
+		ret = gelf_getverdaux(verdef_data, vdoff + vd.vd_aux, &verdaux);
+		assert(ret);
+		ver = elf_strptr(elf, verdef_link, verdaux.vda_name);
+	    }
+	}
+	/* Add symbol. */
+	int delta = 1024;
+	if ((nprov & (delta - 1)) == 0)
+	    prov = realloc(prov, sizeof(*prov) * (nprov + delta));
+	prov[nprov++] = (struct symx) { sym, name, ver, defaultver, false };
+    }
+    assert(nprov > 0);
+    qsort(prov, nprov, sizeof(*prov), provcmp);
 }
 
 static const char *getname(Dwarf_Die *die)
@@ -72,8 +165,6 @@ static Dwarf_Die *gettype(Dwarf_Die *var, Dwarf_Die *type)
 	return NULL;
     return type;
 }
-
-static GElf_Ehdr ehdr;
 
 static char *puttype(char *p, Dwarf_Die *type, bool arg)
 {
@@ -189,11 +280,11 @@ notype: fprintf(stderr, "cannot parse type for %s\n", name);
     return buf;
 }
 
-static void print_sym_0(const char *what,
-			const char *name, int namelen,
+static void print_sym_0(const char *what, const char *name,
 			const char *ver, const char *proto)
 {
-    printf("%s\t%.*s%s%s%s%s", what, namelen, name,
+    printf("%s\t%s%s%s%s%s%s", what, name,
+	    ver ? "@" : "",
 	    ver ? ver : "",
 	    proto ? "\t" : "\n",
 	    proto ? proto : "",
@@ -206,17 +297,11 @@ static bool compat_nover;
 /* For foo(proto), also print foo without proto. */
 static bool compat_noproto;
 
-static void print_sym_1(const char *what, const char *name, const char *proto)
+static void print_sym_1(const char *what, struct symx *symx, const char *proto)
 {
-    const char *ver = strchr(name, '@');
-    if (ver && ver[1] == '@') {
-	/* default version */
-	print_sym_0(what, name, ver - name, ver + 1, proto);
-	if (compat_nover)
-	    print_sym_0(what, name, ver - name, NULL, proto);
-    }
-    else
-	print_sym_0(what, name, strlen(name), NULL, proto);
+    print_sym_0(what, symx->name, symx->ver, proto);
+    if (symx->ver && symx->defaultver && compat_nover)
+	print_sym_0(what, symx->name, NULL, proto);
 }
 
 static void print_sym_2(const char *what, struct symx *symx, Dwarf_Die *die,
@@ -226,9 +311,9 @@ static void print_sym_2(const char *what, struct symx *symx, Dwarf_Die *die,
     /* We do not use proto for mangled symbols. */
     if (!(symx->name[0] == '_' && symx->name[1] == 'Z'))
 	proto = getproto(die, symx->name);
-    print_sym_1(what, symx->name, proto);
+    print_sym_1(what, symx, proto);
     if (proto && compat_noproto)
-	print_sym_1(what, symx->name, NULL);
+	print_sym_1(what, symx, NULL);
 }
 
 static void print_func(struct symx *symx, Dwarf_Die *die)
@@ -296,30 +381,11 @@ int main(int argc, char **argv)
     GElf_Addr bias;
     Elf *elf = dwfl_module_getelf(m, &bias);
     assert(elf);
-    if (gelf_getehdr(elf, &ehdr) == NULL)
-	assert(!"ehdr");
     Dwarf *dwarf = dwfl_module_getdwarf(m, &bias);
     assert(dwarf);
 
     /* Gather provided symbols. */
-    int nsym = dwfl_module_getsymtab(m);
-    int sym1 = dwfl_module_getsymtab_first_global(m);
-    assert(nsym > 0);
-    assert(sym1 >= 0 && sym1 < nsym);
-    int nprov = 0;
-    struct symx *prov = NULL;
-    for (int i = sym1; i < nsym; i++) {
-	GElf_Sym sym;
-	const char *name = dwfl_module_getsym(m, i, &sym, NULL);
-	if (!provided(&sym, name))
-	    continue;
-	int delta = 1024;
-	if ((nprov & (delta - 1)) == 0)
-	    prov = realloc(prov, sizeof(*prov) * (nprov + delta));
-	prov[nprov++] = (struct symx) { sym, name, 0 };
-    }
-    assert(nprov > 0);
-    qsort(prov, nprov, sizeof(*prov), provcmp);
+    gather_prov(elf);
 
     /* Iterate DIEs and match them to provided symbols. */
     setlinebuf(stdout);
@@ -352,7 +418,6 @@ int main(int argc, char **argv)
 	    }
 	    else
 		continue;
-	    key.sym.st_value += bias;
 	    struct symx *symx = bsearch(&key, prov, nprov, sizeof(*prov), provcmp);
 	    if (!symx) {
 		const char *name = getname(&kid);
