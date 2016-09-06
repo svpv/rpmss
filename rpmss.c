@@ -42,7 +42,7 @@
  *
  * Overall, a set-string (also called a set-version in rpm) looks like
  * this: "set:bMxyz...". The "set:" prefix marks set-versions in rpm
- * (to distinguish them between regular rpm versions).  It is assumed
+ * (to distinguish them between regular rpm versions); it is assumed
  * to be stripped here.  The next two characters (denoted 'b' and 'M')
  * encode two parameters: bpp using [a-z] and m using [A-Z]. Their valid
  * ranges are 7..32 and 5..30, respectively.  Also, valid m must be less
