@@ -48,10 +48,10 @@
  * ranges are 7..32 and 5..30, respectively.  Also, valid m must be less
  * than bpp.  The rest ("xyz...") is a variable-length encoded sequence.
  *
- * The main priority in this implementation has been the decoding speed
+ * The main priority in this implementation was the decoding speed
  * (so that the test for unmet dependencies, such as performed by
  * "apt-cache unmet", can be done in a second).  Some implementation
- * possibilities and optimizations have been considered and rejected.
+ * possibilities and optimizations have been considered, and rejected.
  * Using base64 encoding could have immediately made set-strings shorter
  * by 1%; however, base64 would look ugly in rpm dependencies.  Using
  * true base-62 conversion (as in the GNU GMP library) could have saved
@@ -107,7 +107,7 @@ static int encodeInit(const unsigned *v, int n, int bpp)
     if (bpp < 7 || bpp > 32)
 	return -2;
 
-    /* Last value must fit within bpp range */
+    /* Last value must fit within the bpp range */
     if (bpp < 32 && v[n - 1] >> bpp)
 	return -3;
 
@@ -187,9 +187,9 @@ int rpmssEncodeInit(const unsigned *v, int n, int bpp)
      * small; more precisely, zero.  Deltas cover the range in a somewhat
      * inefficient manner, by using only unary-coded q; those q bits then
      * must have enough room to cover the whole range.  Each q bit covers
-     * 2^m; therefore, in the worst case, we need that many q bits.  One
+     * 2^m; therefore, in the worst case, we need that many q bits.  (One
      * additional q bit, due to the rounding down, is not needed; that would
-     * make deltas add up to more than they possibly can. */
+     * make deltas add up to more than they possibly can.) */
     int bits2 = (v[n - 1] - n + 1) >> m;
 
     /*
@@ -260,7 +260,7 @@ int rpmssEncode(const unsigned *v, int n, int bpp, char *s)
 	    }
 	}
 	/*
-	 * Add stop bit.  We then have at least 1 bit and at most 6 bits.
+	 * Add the stop bit.  We then have at least 1 bit and at most 6 bits.
 	 * If we do have 6 bits, it is not possible that the lower 5 bits
 	 * form an irregular case.  Therefore, with the next character
 	 * flushed, no q bits, including the stop bit, will be left.
