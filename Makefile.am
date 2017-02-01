@@ -30,3 +30,16 @@ provided_symbols_LDADD = -ldw -lelf
 bench_lru_SOURCES = bench.c bench-lru.c
 bench_downsample_SOURCES = bench.c bench-downsample.c
 bench_downsample_LDADD = librpmss.a
+
+lib_LTLIBRARIES = dump-rpmsetcmp.la
+dump_rpmsetcmp_la_LDFLAGS = -module -avoid-version
+
+apt.setcmp.zst: dump-rpmsetcmp.la setconv
+	apt-cache unmet &>/dev/null
+	LD_PRELOAD=$$PWD/.libs/dump-rpmsetcmp.so \
+	apt-cache unmet |grep ^rpmsetcmp |cut -f2,3 >$@.PR
+	cut -f1 $@.PR |./setconv >$@.P
+	cut -f2 $@.PR |./setconv >$@.R
+	rm $@.PR
+	paste $@.[PR] |zstd >$@
+	rm $@.[PR]
