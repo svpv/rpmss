@@ -305,11 +305,14 @@ static int cache_decode(struct cache *c,
     ent->n = n;
     memcpy(ent->str, str, len + 1);
     // insert
-    if (c->hc < CACHE_SIZE)
+    if (c->hc <= MIDPOINT)
 	i = c->hc++;
     else {
 	// free last entry
-	free(ev[CACHE_SIZE - 1]);
+	if (c->hc < CACHE_SIZE)
+	    c->hc++;
+	else
+	    free(ev[CACHE_SIZE - 1]);
 	// position at the midpoint
 	i = MIDPOINT;
 	memmove(hv + i + 1, hv + i, (CACHE_SIZE - i - 1) * sizeof hv[0]);
