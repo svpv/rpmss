@@ -225,8 +225,8 @@ struct cache_ent {
  * to that new element, at the expense of other elements that are
  * already in the cache.  The idea is then to try first-time
  * insertion somewhere in the middle.  Further attempts suggest
- * that the "midpoint" or "pivot" should be closer to the end. */
-#define PIVOT_SIZE (CACHE_SIZE * 7 / 8)
+ * that the midpoint should actually be closer to the end. */
+#define MIDPOINT (CACHE_SIZE * 7 / 8)
 
 struct cache {
     /* We use a separate array of hash(ent->str) values.
@@ -310,8 +310,8 @@ static int cache_decode(struct cache *c,
     else {
 	// free last entry
 	free(ev[CACHE_SIZE - 1]);
-	// position at midpoint
-	i = PIVOT_SIZE;
+	// position at the midpoint
+	i = MIDPOINT;
 	memmove(hv + i + 1, hv + i, (CACHE_SIZE - i - 1) * sizeof hv[0]);
 	memmove(ev + i + 1, ev + i, (CACHE_SIZE - i - 1) * sizeof ev[0]);
     }
