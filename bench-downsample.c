@@ -1,4 +1,4 @@
-#include <stddef.h>
+#include <string.h>
 
 static int downsample1(const unsigned *v, size_t n, unsigned *w, int bpp)
 {
@@ -50,8 +50,7 @@ static int downsample1(const unsigned *v, size_t n, unsigned *w, int bpp)
 	}
     }
     /* Append what's left. */
-    while (v1 < v1end)
-	*w++ = *v1++;
+    w = mempcpy(w, v1, (char *) v1end - (char *) v1);
     while (v2 < v2end)
 	*w++ = *v2++ & mask;
     /* The number of values may decrease. */
@@ -69,7 +68,6 @@ static struct decoded *dd[MAXDD];
 static int ndd;
 
 #include <stdbool.h>
-#include <string.h>
 #include <assert.h>
 #include "rpmss.h"
 

@@ -195,8 +195,7 @@ static int downsample1(const unsigned *v, size_t n, unsigned *w, int bpp)
 	}
     }
     /* Append what's left. */
-    while (v1 < v1end)
-	*w++ = *v1++;
+    w = mempcpy(w, v1, (char *) v1end - (char *) v1);
     while (v2 < v2end)
 	*w++ = *v2++ & mask;
     /* The number of values may decrease. */
