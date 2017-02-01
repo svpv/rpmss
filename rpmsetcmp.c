@@ -258,6 +258,7 @@ static int cache_decode(struct cache *c,
     struct cache_ent **ev = c->ev;
     unsigned hash;
     memcpy(&hash, str, sizeof hash);
+    hash ^= len;
     // Install sentinel
     hv[c->hc] = hash;
     unsigned *hp = hv;
