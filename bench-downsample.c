@@ -1,11 +1,13 @@
-static int downsample1(const unsigned *v, int n, unsigned *w, int bpp)
+#include <stddef.h>
+
+static int downsample1(const unsigned *v, size_t n, unsigned *w, int bpp)
 {
     unsigned mask = (1U << bpp) - 1;
     /* Find the first element with high bit set. */
-    int l = 0;
-    int u = n;
+    size_t l = 0;
+    size_t u = n;
     while (l < u) {
-	int i = (l + u) / 2;
+	size_t i = (l + u) / 2;
 	if (v[i] <= mask)
 	    l = i + 1;
 	else
