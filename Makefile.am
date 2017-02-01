@@ -6,7 +6,7 @@ librpmss_la_CFLAGS = $(AM_CFLAGS) -Wno-override-init
 librpmset_la_SOURCES = rpmset.c
 librpmsetcmp_la_SOURCES = rpmsetcmp.c
 
-bin_PROGRAMS = mkset setcmp test-rpmss setconv gen-kiely-k provided-symbols bench-lru
+bin_PROGRAMS = mkset setcmp test-rpmss setconv gen-kiely-k provided-symbols bench-lru bench-downsample
 mkset_SOURCES = mkset.c
 mkset_LDADD = librpmset.la librpmss.la
 
@@ -28,3 +28,5 @@ provided_symbols_SOURCES = provided-symbols.c
 provided_symbols_LDADD = -ldw -lelf
 
 bench_lru_SOURCES = bench.c bench-lru.c
+bench_downsample_SOURCES = bench.c bench-downsample.c
+bench_downsample_LDADD = librpmss.la

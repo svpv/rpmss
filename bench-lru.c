@@ -122,6 +122,17 @@ static unsigned int jhash(const char *str)
     return hash;
 }
 
+#include <stdbool.h>
+
+static bool doline(const char *line, size_t len)
+{
+    unsigned hash = jhash(line);
+    char s[4];
+    strncpy(s, line, 4);
+    lines[nlines++] = (struct line) { { s[0], s[1], s[2], s[3] }, len, hash };
+    return nlines == MAXLINES;
+}
+
 #include <stdio.h>
 
 static void readlines(void)
@@ -134,11 +145,7 @@ static void readlines(void)
 	    line[--len] = '\0';
 	if (len == 0)
 	    continue;
-	unsigned hash = jhash(line);
-	char s[4];
-	strncpy(s, line, 4);
-	lines[nlines++] = (struct line) { { s[0], s[1], s[2], s[3] }, len, hash };
-	if (nlines == MAXLINES)
+	if (doline(line, len))
 	    break;
     }
     free(line);
