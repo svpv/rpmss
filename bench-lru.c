@@ -1,4 +1,6 @@
+#ifndef CACHE_SIZE
 #define CACHE_SIZE (256 - 2)
+#endif
 #define MIDPOINT (CACHE_SIZE * 7 / 8)
 
 struct cache_ent {
@@ -46,7 +48,7 @@ static int cache_decode(struct cache *c,
     hv[c->hc] = hash;
     unsigned *hp = hv;
     // Find hash
-#if defined(__SSE2__)
+#if defined(__SSE2__) // CACHE_SIZE >= 145
     const unsigned key[4] __attribute__((aligned(16))) = { hash, hash, hash, hash };
     const __m128i xmm1 = _mm_load_si128((__m128i *) &key);
     __m128i xmm2, xmm3;

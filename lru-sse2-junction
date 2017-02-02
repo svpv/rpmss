@@ -1,0 +1,18 @@
+#!/bin/sh -efu
+bench()
+{
+	for i in `seq 1 10`; do
+		zstd -d <apt.setcmp.zst |cut -f1 |awk 'length>256' |./bench-lru
+	done |grep -w hot |awk '{print$(NF-1)}' |stats.pl |
+	perl -lne '$sum += $2 if /^(avg|q50)=(\d+)/; END{print$sum}'
+}
+for size in `seq 96 192`; do
+	rm -f bench-lru.o; make &>/dev/null CPPFLAGS="-DCACHE_SIZE=$size"
+	t1=$(bench)
+	rm -f bench-lru.o; make &>/dev/null CPPFLAGS="-DCACHE_SIZE=$size -DNOSSE2"
+	t2=$(bench)
+	echo >&2 size=$size t_SSE2=$t1 t_no_SSE2=$t2
+	if (( t1 < t2 )); then
+		echo $size
+	fi
+done
