@@ -1,0 +1,14 @@
+#!/bin/sh -efu
+bench()
+{
+	for i in `seq 1 4`; do
+		zstd -d <apt.setcmp.zst |./bench-rpmsetcmp
+	done |grep -w hot |awk '{print$(NF-1)}' |stats.pl |
+	perl -lne '$sum += $2 if /^(avg|q50)=(\d+)/; END{print$sum}'
+}
+t1=
+for size in `seq 64 32 512`; do
+	rm -f rpmsetcmp.o; make &>/dev/null CPPFLAGS="-DDECODE_CACHE_SIZE=$size"
+	t=$(bench)
+	echo size=$size $((t/1000/1000))
+done
