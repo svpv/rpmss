@@ -237,7 +237,7 @@ struct cache {
     int hc;
     /* Cache entries. */
     struct cache_ent *ev[CACHE_SIZE];
-} __attribute__((aligned(16)));
+};
 
 /* need malloc */
 #include <stdlib.h>
@@ -245,11 +245,6 @@ struct cache {
 
 /* need rpmssDecode */
 #include "rpmss.h"
-
-#ifdef __SSE2__
-#include <emmintrin.h>
-#include <strings.h>
-#endif
 
 static int cache_decode(struct cache *c,
 			const char *str, int len,
@@ -266,45 +261,8 @@ static int cache_decode(struct cache *c,
     // Install sentinel
     hv[c->hc] = hash;
     unsigned *hp = hv;
-    // Find hash
-#if defined(__SSE2__) && CACHE_SIZE >= 145
-    const unsigned key[4] __attribute__((aligned(16))) = { hash, hash, hash, hash };
-    const __m128i xmm1 = _mm_load_si128((__m128i *) &key);
-    __m128i xmm2, xmm3;
-    unsigned short mask;
-#define FINDHASH(LOAD)				\
-    do {					\
-	xmm2 = LOAD((__m128i *) hp);		\
-	xmm3 = _mm_cmpeq_epi32(xmm1, xmm2);	\
-	mask = _mm_movemask_epi8(xmm3);		\
-	if (mask) {				\
-	    hp += ffs(mask) >> 2;		\
-	    goto foundhash;			\
-	}					\
-	hp += 4;				\
-    } while (0)
-#define FASTFIND()				\
-    do {					\
-	FINDHASH(_mm_load_si128);		\
-	FINDHASH(_mm_load_si128);		\
-	FINDHASH(_mm_load_si128);		\
-	FINDHASH(_mm_load_si128);		\
-    } while (0)
-    // Fast aligned loads, fully unrolled
-    FASTFIND();
-    FASTFIND();
-    FASTFIND();
     while (1) {
-	// Unaligned loads, the loop can be reentered
-	while (1) {
-	    // Three iterations are optimal here
-	    FINDHASH(_mm_loadu_si128);
-	    FINDHASH(_mm_loadu_si128);
-	    FINDHASH(_mm_loadu_si128);
-	}
-    foundhash:
-#else	// brackets balanced below
-    while (1) {
+	// Find hash
 	while (1) {
 	    // Cf. Quicker sequential search in [Knuth, Vol.3, p.398]
 	    if (hp[0] == hash) break;
@@ -313,7 +271,6 @@ static int cache_decode(struct cache *c,
 	    if (hp[3] == hash) { hp += 3; break; }
 	    hp += 4;
 	}
-#endif
 	i = hp - hv;
 	// Found sentinel?
 	if (i == c->hc)
@@ -334,11 +291,7 @@ static int cache_decode(struct cache *c,
 	}
 	*pv = ENT_V(ent, len);
 	return ent->n;
-#ifdef __SSE2__
     }
-#else	// brackets balanced here
-    }
-#endif
     // decode
     ent = xmalloc(sizeof(*ent) + ENT_STRSIZE(len) + (n + SENTINELS) * sizeof(unsigned));
     unsigned *v = ENT_V(ent, len);
