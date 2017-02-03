@@ -171,14 +171,14 @@ static int downsample1(const unsigned *v, size_t n, unsigned *w, int bpp)
 		*w++ = v1val;
 		v1++;
 		if (v1 == v1end)
-		    break;
+		    goto left2;
 		v1val = *v1;
 	    }
 	    else if (v2val < v1val) {
 		*w++ = v2val;
 		v2++;
 		if (v2 == v2end)
-		    break;
+		    goto left1;
 		v2val = *v2 & mask;
 	    }
 	    else {
@@ -186,19 +186,24 @@ static int downsample1(const unsigned *v, size_t n, unsigned *w, int bpp)
 		v1++;
 		v2++;
 		if (v1 == v1end)
-		    break;
+		    goto left2;
 		if (v2 == v2end)
-		    break;
+		    goto left1;
 		v1val = *v1;
 		v2val = *v2 & mask;
 	    }
 	}
     }
-    /* Append what's left. */
+    /* In case no merge took place. */
     w = mempcpy(w, v1, (char *) v1end - (char *) v1);
+left2:
+    /* Append what's left. */
     while (v2 < v2end)
 	*w++ = *v2++ & mask;
     /* The number of values may decrease. */
+    return w - w_start;
+left1:
+    w = mempcpy(w, v1, (char *) v1end - (char *) v1);
     return w - w_start;
 }
 
