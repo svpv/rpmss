@@ -116,7 +116,7 @@ static void downsample(void)
     for (int i = 0; i < ndd; i++) {
 	struct decoded *d = dd[i];
 	assert(d->n <= MAXW);
-	ret += downsample1(d->v, d->n, w, d->bpp);
+	ret += downsample1(d->v, d->n, w, d->bpp - 1);
     }
 }
 
