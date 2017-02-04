@@ -129,9 +129,10 @@ static int setcmp(const unsigned *v1, size_t n1,
 	le = 0;			\
 	v1 += 2;		\
 	ADVANCE_V1_ ## ADV(2);	\
-	v1--;			\
-	if (*v1 < v2val)	\
-	    v1++;		\
+	if (v1[-1] < v2val)	\
+	    (void) 0;		\
+	else			\
+	    v1--;		\
 	if (v1 == v1end)	\
 	    break;		\
     }
@@ -140,11 +141,10 @@ static int setcmp(const unsigned *v1, size_t n1,
 	le = 0;			\
 	v1 += 4;		\
 	ADVANCE_V1_ ## ADV(4);	\
-	v1 -= 2;		\
-	if (*v1 < v2val)	\
-	    v1++;		\
+	if (v1[-2] < v2val)	\
+	    v1 -= 1;		\
 	else			\
-	    v1--;		\
+	    v1 -= 3;		\
 	if (*v1 < v2val)	\
 	    v1++;		\
 	if (v1 == v1end)	\
@@ -155,11 +155,10 @@ static int setcmp(const unsigned *v1, size_t n1,
 	le = 0;			\
 	v1 += 8;		\
 	ADVANCE_V1_ ## ADV(8);	\
-	v1 -= 4;		\
-	if (*v1 < v2val)	\
-	    v1 += 2;		\
-	else			\
+	if (v1[-4] < v2val)	\
 	    v1 -= 2;		\
+	else			\
+	    v1 -= 6;		\
 	if (*v1 < v2val)	\
 	    v1++;		\
 	else			\
