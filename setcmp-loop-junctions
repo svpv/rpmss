@@ -1,0 +1,42 @@
+#!/bin/sh -efu
+# Profie setcmp() loop junction points.
+# Modifications to rpmsetcmp.c are obvious:
+#	double factor = log2(n1 / (double) n2);
+#	if (factor < FACTOR-0.1 || factor > FACTOR+0.1)
+#	    return 0;
+#	LOOP;
+#	return le + ge;
+LOOPS='
+1,TIGHT 1,UNROLLED
+2,TIGHT 2,UNROLLED
+4,TIGHT 4,UNROLLED
+8,TIGHT 8,UNROLLED
+'
+Profile()
+{
+	for FACTOR in `seq 0.5 0.1 15`; do
+		gcc -O2 -D_GNU_SOURCE \
+			-DLOOP="CMPLOOP($LOOP)" -DFACTOR=$FACTOR \
+			bench-setcmp.c bench.c librpmss.a -lm
+		cost=$(zstd -d <apt.setcmp.zst |./a.out |
+			grep -w hot |awk '{print$(NF-1)}')
+		echo $FACTOR ${cost:?}
+	done
+}
+for LOOP in $LOOPS; do
+	echo LOOP $LOOP
+	Profile |tee LOOP-$LOOP
+done
+
+curves=$(for LOOP in $LOOPS; do
+	echo -n \"LOOP-$LOOP\" smooth bezier,
+	done)
+cat >"${0##*/}.gp" <<EOF
+set xtics 1
+plot [1:12] [1.5e7:3.5e7] ${curves%,}
+EOF
+gnuplot <<EOF
+set terminal png size 1280,1024
+set output "${0##*/}.png"
+$(cat "${0##*/}.gp")
+EOF
