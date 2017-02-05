@@ -100,14 +100,14 @@ static int setcmp(const unsigned *v1, size_t n1,
 	le = 0;			\
 	v1++;			\
 	ADVANCE_V1_ ## ADV(1);	\
-	/* We don't use "do { STMT } while (0)" hygienic macros,
-	 * because we need to break out of the enclosing loop. */ \
 	if (v1 == v1end)	\
-	    break;		\
+	    return ge ? 1 : -2; \
     }
 #define IFGE			\
     if (*v1 == v2val) {		\
 	v1++, v2++;		\
+	/* We don't use "do { STMT } while (0)" hygienic macros,
+	 * because we need to break out of the enclosing loop. */ \
 	if (v1 == v1end)	\
 	    break;		\
 	if (v2 == v2end)	\
@@ -134,7 +134,7 @@ static int setcmp(const unsigned *v1, size_t n1,
 	else			\
 	    v1--;		\
 	if (v1 == v1end)	\
-	    break;		\
+	    return ge ? 1 : -2; \
     }
 #define IFLT4(ADV)		\
     if (*v1 < v2val) {		\
@@ -148,7 +148,7 @@ static int setcmp(const unsigned *v1, size_t n1,
 	if (*v1 < v2val)	\
 	    v1++;		\
 	if (v1 == v1end)	\
-	    break;		\
+	    return ge ? 1 : -2; \
     }
 #define IFLT8(ADV)		\
     if (*v1 < v2val) {		\
@@ -166,7 +166,7 @@ static int setcmp(const unsigned *v1, size_t n1,
 	if (*v1 < v2val)	\
 	    v1++;		\
 	if (v1 == v1end)	\
-	    break;		\
+	    return ge ? 1 : -2; \
     }
     /* Choose the right loop. */
 #ifdef __GNUC__
