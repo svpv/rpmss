@@ -57,16 +57,6 @@ static int setcmp(const unsigned *v1, size_t n1,
 	}
     }
 #endif
-    /* All the boundary checking is done inside the loop (this is because
-     * e.g. in the IFLT part, only the v1 boundary needs to be checked).
-     * To facilitate the checking even further, we preload the boundaries
-     * into registers. */
-    const unsigned *v1end = v1 + n1;
-    const unsigned *v2end = v2 + n2;
-    /* Since v2 gets advanced far less often than v1, its value is also
-     * preloaded into a register.  Whether v1 value should be preloaded
-     * in the same manner, the results of profiling are inconclusive. */
-    unsigned v2val = *v2;
     /* The comparison loop template. */
 #define CMPLOOP(N, ADV)		\
     do {			\
@@ -75,6 +65,16 @@ static int setcmp(const unsigned *v1, size_t n1,
 	    IFGE;		\
 	}			\
     } while (0)
+    /* All the boundary checking is done inside the loop (this is because
+     * e.g. in the IFLT part, only the v1 boundary needs to be checked).
+     * To facilitate the checking even further, we preload the boundaries
+     * into registers. */
+    const unsigned *v1end = v1 + n1;
+    const unsigned *v2end = v2 + n2;
+    /* Since v2 gets advanced far less often than v1, its value is also
+     * preloaded into a register.  Preloading v1 also helps a little bit. */
+    unsigned v1val = *v1;
+    unsigned v2val = *v2;
     /* To advance v1, we provide two loops.  When the expected number
      * of iterations is very small, the "tight" loop should be used.
      * Otherwise, the "unrolled" loop can be beneficial.  Both loops
@@ -96,15 +96,16 @@ static int setcmp(const unsigned *v1, size_t n1,
     /* We're now able to provide a reference implementation for IFLT
      * and IFGE, thus completing the loop. */
 #define IFLT1(ADV)		\
-    if (*v1 < v2val) {		\
+    if (v1val < v2val) {	\
 	le = 0;			\
 	v1++;			\
 	ADVANCE_V1_ ## ADV(1);	\
 	if (v1 == v1end)	\
 	    return ge ? 1 : -2; \
+	v1val = *v1;		\
     }
 #define IFGE			\
-    if (*v1 == v2val) {		\
+    if (v1val == v2val) {	\
 	v1++, v2++;		\
 	/* We don't use "do { STMT } while (0)" hygienic macros,
 	 * because we need to break out of the enclosing loop. */ \
@@ -112,6 +113,7 @@ static int setcmp(const unsigned *v1, size_t n1,
 	    break;		\
 	if (v2 == v2end)	\
 	    break;		\
+	v1val = *v1;		\
 	v2val = *v2;		\
     }				\
     else {			\
@@ -125,7 +127,7 @@ static int setcmp(const unsigned *v1, size_t n1,
      * speculatively, after which they backtrack v1 using bisecting.
      * Cf. Binary merging in [Knuth, Vol.3, p.203] */
 #define IFLT2(ADV)		\
-    if (*v1 < v2val) {		\
+    if (v1val < v2val) {	\
 	le = 0;			\
 	v1 += 2;		\
 	ADVANCE_V1_ ## ADV(2);	\
@@ -135,9 +137,10 @@ static int setcmp(const unsigned *v1, size_t n1,
 	    v1--;		\
 	if (v1 == v1end)	\
 	    return ge ? 1 : -2; \
+	v1val = *v1;		\
     }
 #define IFLT4(ADV)		\
-    if (*v1 < v2val) {		\
+    if (v1val < v2val) {	\
 	le = 0;			\
 	v1 += 4;		\
 	ADVANCE_V1_ ## ADV(4);	\
@@ -149,9 +152,10 @@ static int setcmp(const unsigned *v1, size_t n1,
 	    v1++;		\
 	if (v1 == v1end)	\
 	    return ge ? 1 : -2; \
+	v1val = *v1;		\
     }
 #define IFLT8(ADV)		\
-    if (*v1 < v2val) {		\
+    if (v1val < v2val) {	\
 	le = 0;			\
 	v1 += 8;		\
 	ADVANCE_V1_ ## ADV(8);	\
@@ -167,6 +171,7 @@ static int setcmp(const unsigned *v1, size_t n1,
 	    v1++;		\
 	if (v1 == v1end)	\
 	    return ge ? 1 : -2; \
+	v1val = *v1;		\
     }
     /* Choose the right loop. */
 #ifdef __GNUC__
