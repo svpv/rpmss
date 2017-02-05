@@ -168,15 +168,27 @@ static int setcmp(const unsigned *v1, size_t n1,
 	if (v1 == v1end)	\
 	    break;		\
     }
-    /* Choose the right stepper.  We can safely multiply by 16 here, see
-     * a comment on the maximum set-string size in rpmss.c:encodeInit().
-     * The constant is derived empirically. */
-    if (n1 >= 16 * n2)
-	CMPLOOP(8, UNROLLED);
-    else if (n1 >= 8 * n2)
-	CMPLOOP(4, TIGHT);
+    /* Choose the right loop. */
+#ifdef __GNUC__
+    /* For the reasons that have not been fully identified,
+     * the following construct makes gcc produce a somewhat better code.
+     * The "factor" approximates log2(n1/n2). */
+    unsigned factor = n1 > n2 ? __builtin_clz(n2) - __builtin_clz(n1) : 0;
+    bool small = factor < 6;
+#else
+    bool small = n1 / 32 < n2;
+#endif
+    /* At least on Ivy Bridge and Haswell, the best code is obtained with
+     * just a single crossover between the two loops.  Should you profile
+     * the code again, be sure to check the real counter of CPU cycles,
+     * as opposed to valgrind instruction reads; i.e. it makes sense
+     * to execute more instructions with fewer mispredicted branches. */
+    if (small)
+	CMPLOOP(2, UNROLLED);
     else
-	CMPLOOP(1, TIGHT);
+	CMPLOOP(4, UNROLLED);
+    /* If CMPLOOP(8) gets used, SENTINELS should be set to 8. */
+#define SENTINELS 4
     /* If there are any elements left, this affects the result. */
     if (v1 < v1end)
 	le = 0;
@@ -195,7 +207,6 @@ static int setcmp(const unsigned *v1, size_t n1,
  * at the end of every Provides set. */
 static inline void install_sentinels(unsigned *v, int n)
 {
-#define SENTINELS 8
     memset(v + n, 0xff, SENTINELS * sizeof(*v));
 }
 
