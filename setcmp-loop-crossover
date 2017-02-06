@@ -1,0 +1,20 @@
+#!/bin/sh -efu
+# Profie setcmp() loop junction points.
+# Modifications to rpmsetcmp.c are obvious:
+#	double factor = log2(n1 / (double) n2);
+#	if (factor < FACTOR-0.1 || factor > FACTOR+0.1)
+#	    return 0;
+#	LOOP;
+#	return le + ge;
+Profile()
+{
+	for CROSSOVER in `seq 32 1 64`; do
+		gcc -O2 -D_GNU_SOURCE \
+			-DCROSSOVER=$CROSSOVER \
+			bench-setcmp.c bench.c librpmss.a -lm
+		cost=$(zstd -d <apt.setcmp.zst |./a.out |
+			grep -w hot |awk '{print$(NF-1)}')
+		echo $CROSSOVER ${cost:?}
+	done
+}
+Profile |tee CROSSOVER

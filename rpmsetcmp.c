@@ -174,14 +174,16 @@ static int setcmp(const unsigned *v1, size_t n1,
 	v1val = *v1;		\
     }
     /* Choose the right loop. */
-#ifdef __GNUC__
+#if 0
     /* For the reasons that have not been fully identified,
      * the following construct makes gcc produce a somewhat better code.
      * The "factor" approximates log2(n1/n2). */
     unsigned factor = n1 > n2 ? __builtin_clz(n2) - __builtin_clz(n1) : 0;
     bool small = factor < 6;
+#elif 0
+    bool small = n1 / 4 < 15 * n2;
 #else
-    bool small = n1 / 32 < n2;
+    bool small = n1 < CROSSOVER * n2;
 #endif
     /* At least on Ivy Bridge and Haswell, the best code is obtained with
      * just a single crossover between the two loops.  Should you profile
