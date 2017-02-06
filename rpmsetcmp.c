@@ -173,24 +173,20 @@ static int setcmp(const unsigned *v1, size_t n1,
 	    return ge ? 1 : -2; \
 	v1val = *v1;		\
     }
-    /* Choose the right loop. */
-#if 0
-    /* For the reasons that have not been fully identified,
-     * the following construct makes gcc produce a somewhat better code.
-     * The "factor" approximates log2(n1/n2). */
-    unsigned factor = n1 > n2 ? __builtin_clz(n2) - __builtin_clz(n1) : 0;
-    bool small = factor < 6;
-#elif 0
-    bool small = n1 / 4 < 15 * n2;
-#else
-    bool small = n1 < CROSSOVER * n2;
-#endif
+    /* Choose the right loop:
+     * if n1/n2 < CROSSOVER, use a less speculative one. */
+#define CROSSOVER 44
+    /* Here n2 can be safely multiplied by up to 32, see a comment
+     * on the maximum set-string size in rpmss.c:encodeInit(). */
+    bool smallstep = CROSSOVER > 32 && sizeof n2 < 5 ?
+	    n1 / 2 < CROSSOVER / 2 * n2 :
+	    n1 / 1 < CROSSOVER / 1 * n2 ;
     /* At least on Ivy Bridge and Haswell, the best code is obtained with
      * just a single crossover between the two loops.  Should you profile
      * the code again, be sure to check the real counter of CPU cycles,
      * as opposed to valgrind instruction reads; i.e. it makes sense
      * to execute more instructions with fewer mispredicted branches. */
-    if (small)
+    if (smallstep)
 	CMPLOOP(2, UNROLLED);
     else
 	CMPLOOP(4, UNROLLED);

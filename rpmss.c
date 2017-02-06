@@ -166,7 +166,7 @@ static int encodeInit(const unsigned *v, int n, int bpp)
      * at most 2^{32-5}-1 = 128M-1 values (and the length of such a string
      * would be about 130M).  Corollary: if "int n" is the number of values
      * in a decoded v[] set, n can be safely multiplied by 16 (without
-     * integer overflow). */
+     * integer overflow); unsigned n can be safely multiplied by 32. */
     assert(n < (1 << 27));
 
     return m;
