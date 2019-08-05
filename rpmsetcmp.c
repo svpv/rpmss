@@ -337,6 +337,11 @@ struct cache {
 /* need rpmssDecode */
 #include "rpmss.h"
 
+static struct stats {
+    int hit;
+    int miss;
+} stats;
+
 static int cache_decode(struct cache *c,
 			const char *str, int len,
 			int n /* expected v[] size */,
@@ -380,9 +385,11 @@ static int cache_decode(struct cache *c,
 	    hv[0] = hash;
 	    ev[0] = ent;
 	}
+	stats.hit++;
 	*pv = ENT_V(ent, len);
 	return ent->n;
     }
+    stats.miss++;
     // decode
     ent = xmalloc(sizeof(*ent) + ENT_STRSIZE(len) + (n + SENTINELS) * sizeof(unsigned));
     unsigned *v = ENT_V(ent, len);
@@ -413,6 +420,13 @@ static int cache_decode(struct cache *c,
     ev[i] = ent;
     *pv = v;
     return n;
+}
+
+#include <stdio.h>
+static __attribute__((destructor)) void print_stats(void)
+{
+    fprintf(stderr, "rpmsetcmp cache %.1f%% hit rate\n",
+	    100.0 * stats.hit / (stats.hit + stats.miss));
 }
 
 /* The real cache.  You can make it __thread. */
