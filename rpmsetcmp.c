@@ -318,6 +318,9 @@ struct cache_ent {
  * that the midpoint should actually be closer to the end. */
 #define MIDPOINT (CACHE_SIZE * 7 / 8)
 
+/* On a hit, move to front that many steps. */
+#define MOVSTEP 32
+
 struct cache {
     /* We use a separate array of hash(ent->str) values.
      * The search is first done on this array, without touching
@@ -379,9 +382,11 @@ static int cache_decode(struct cache *c,
 	    continue;
 	}
 	// Hit, move to front
-	if (i) {
-	    memmove(hv + 1, hv, i * sizeof hv[0]);
-	    memmove(ev + 1, ev, i * sizeof ev[0]);
+	if (i > MOVSTEP) {
+	    hv += (unsigned) i - MOVSTEP;
+	    ev += (unsigned) i - MOVSTEP;
+	    memmove(hv + 1, hv, MOVSTEP * sizeof hv[0]);
+	    memmove(ev + 1, ev, MOVSTEP * sizeof ev[0]);
 	    hv[0] = hash;
 	    ev[0] = ent;
 	}
