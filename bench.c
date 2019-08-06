@@ -5,20 +5,19 @@
 #include <unistd.h>
 #include "bench.h"
 
+#if defined(__i386__) || defined(__x86_64__)
+#include <x86intrin.h>
+#define rdtsc() __rdtsc()
+#elif defined(__aarch64__)
 static inline uint64_t rdtsc(void)
 {
-#ifdef __x86_64__
-    uint32_t a, d;
-    asm volatile ("rdtsc" : "=a" (a), "=d" (d));
-    return a | ((uint64_t) d << 32);
-#elif defined(__i386__)
-    uint64_t x;
-    asm volatile ("rdtsc" : "=A" (x));
-    return x;
-#else
-    return 0;
-#endif
+    uint64_t t;
+    asm volatile("mrs %0, cntvct_el0" : "=r"(t));
+    return t;
 }
+#else
+#error "rdtsc not supported"
+#endif
 
 static __attribute__((noinline))
 uint64_t time1(void (*func)(void), bool u)
