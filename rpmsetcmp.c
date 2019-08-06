@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdint.h>
 #include <stdbool.h>
 /*
  * To compare two decoded sets, we basically need to compare two arrays
@@ -307,7 +308,7 @@ struct cache_ent {
 
 /* The cache of this size (about 256 entries) can provide
  * 75% hit ratio while using less than 2MB of malloc chunks. */
-#define CACHE_SIZE (256 - 2) /* Need sentinel and count */
+#define CACHE_SIZE (256 - 1) /* Need sentinel */
 
 /* We use LRU cache with a special first-time insertion policy.
  * When adding an element to the cache for the first time,
@@ -326,7 +327,7 @@ struct cache {
      * The search is first done on this array, without touching
      * the entries.  Note that hv[] goes first and gets the best
      * alignment, which might facilitate the search. */
-    unsigned hv[CACHE_SIZE + 1];
+    uint16_t hv[CACHE_SIZE + 1];
     /* Total count, initially less than CACHE_SIZE. */
     int hc;
     /* Cache entries. */
@@ -345,6 +346,19 @@ static struct stats {
     int miss;
 } stats;
 
+static inline unsigned hash16(const char *str, unsigned len)
+{
+    uint32_t h;
+    memcpy(&h, str + 4, 4);
+    h *= 2654435761U;
+    h += len << 16;
+    return h >> 16;
+}
+
+#ifdef __SSE2__
+#include <emmintrin.h>
+#endif
+
 static int cache_decode(struct cache *c,
 			const char *str, int len,
 			int n /* expected v[] size */,
@@ -352,16 +366,31 @@ static int cache_decode(struct cache *c,
 {
     int i;
     struct cache_ent *ent;
-    unsigned *hv = c->hv;
+    uint16_t *hv = c->hv;
     struct cache_ent **ev = c->ev;
-    unsigned hash;
-    memcpy(&hash, str, sizeof hash);
-    hash ^= len;
+    unsigned hash = hash16(str, len);
+#ifdef __SSE2__
+    __m128i xmm0 = _mm_set1_epi16(hash);
+#endif
     // Install sentinel
     hv[c->hc] = hash;
-    unsigned *hp = hv;
+    uint16_t *hp = hv;
     while (1) {
 	// Find hash
+#ifdef __SSE2__
+	unsigned mask;
+	do {
+	    __m128i xmm1 = _mm_loadu_si128((void *)(hp + 0));
+	    __m128i xmm2 = _mm_loadu_si128((void *)(hp + 8));
+	    hp += 16;
+	    xmm1 = _mm_cmpeq_epi16(xmm1, xmm0);
+	    xmm2 = _mm_cmpeq_epi16(xmm2, xmm0);
+	    xmm1 = _mm_packs_epi16(xmm1, xmm2);
+	    mask = _mm_movemask_epi8(xmm1);
+	} while (mask == 0);
+	hp -= 16;
+	hp += __builtin_ctz(mask);
+#else
 	while (1) {
 	    // Cf. Quicker sequential search in [Knuth, Vol.3, p.398]
 	    if (hp[0] == hash) break;
@@ -370,6 +399,7 @@ static int cache_decode(struct cache *c,
 	    if (hp[3] == hash) { hp += 3; break; }
 	    hp += 4;
 	}
+#endif
 	i = hp - hv;
 	// Found sentinel?
 	if (i == c->hc)
