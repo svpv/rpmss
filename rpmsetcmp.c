@@ -82,16 +82,16 @@ static int setcmp(const unsigned *v1, size_t n1,
      * can advance v1 speculatively by more than 1 (which implies
      * that after the loop, v1 must somehow backtrack). */
 #define ADVANCE_V1_TIGHT(N)	\
-    while (*v1 < v2val)		\
+    while (v1[N] < v2val)	\
 	v1 += N;
 #define ADVANCE_V1_UNROLLED(N)	\
     while (1) {			\
 	/* Cf. Quicker sequential search in [Knuth, Vol.3, p.398] */ \
 	/* Four iterations work best here. */		\
-	if (v1[0*N] >= v2val) break;			\
-	if (v1[1*N] >= v2val) { v1 += 1*N; break; }	\
-	if (v1[2*N] >= v2val) { v1 += 2*N; break; }	\
-	if (v1[3*N] >= v2val) { v1 += 3*N; break; }	\
+	if (v1[1*N] >= v2val) break;			\
+	if (v1[2*N] >= v2val) { v1 += 1*N; break; }	\
+	if (v1[3*N] >= v2val) { v1 += 2*N; break; }	\
+	if (v1[4*N] >= v2val) { v1 += 3*N; break; }	\
 	v1 += 4*N;		\
     }
     /* We're now able to provide a reference implementation for IFLT
@@ -99,8 +99,8 @@ static int setcmp(const unsigned *v1, size_t n1,
 #define IFLT1(ADV)		\
     if (v1val < v2val) {	\
 	le = 0;			\
-	v1++;			\
 	ADVANCE_V1_ ## ADV(1);	\
+	v1++;			\
 	if (v1 == v1end)	\
 	    return ge ? 1 : -2; \
 	v1val = *v1;		\
@@ -130,8 +130,8 @@ static int setcmp(const unsigned *v1, size_t n1,
 #define IFLT2(ADV)		\
     if (v1val < v2val) {	\
 	le = 0;			\
-	v1 += 2;		\
 	ADVANCE_V1_ ## ADV(2);	\
+	v1 += 2;		\
 	if (v1[-1] < v2val)	\
 	    (void) 0;		\
 	else			\
@@ -143,8 +143,8 @@ static int setcmp(const unsigned *v1, size_t n1,
 #define IFLT4(ADV)		\
     if (v1val < v2val) {	\
 	le = 0;			\
-	v1 += 4;		\
 	ADVANCE_V1_ ## ADV(4);	\
+	v1 += 4;		\
 	if (v1[-2] < v2val)	\
 	    v1 -= 1;		\
 	else			\
@@ -158,8 +158,8 @@ static int setcmp(const unsigned *v1, size_t n1,
 #define IFLT8(ADV)		\
     if (v1val < v2val) {	\
 	le = 0;			\
-	v1 += 8;		\
 	ADVANCE_V1_ ## ADV(8);	\
+	v1 += 8;		\
 	if (v1[-4] < v2val)	\
 	    v1 -= 2;		\
 	else			\
