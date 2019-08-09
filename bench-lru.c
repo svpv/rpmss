@@ -1,17 +1,17 @@
-#ifndef CACHE_SIZE
-#define CACHE_SIZE (256 - 2)
-#endif
+#include <stdint.h>
+
+#define CACHE_SIZE (256 - 1)
 #define MIDPOINT (CACHE_SIZE * 7 / 8)
+#define MOVSTEP 32
 
 struct cache_ent {
     unsigned fullhash;
     int len;
     int n;
-    unsigned v[];
 };
 
 struct cache {
-    unsigned hv[CACHE_SIZE + 1];
+    uint16_t hv[CACHE_SIZE + 1];
     int hc;
     int hit, miss;
     struct cache_ent *ev[CACHE_SIZE];
@@ -21,6 +21,19 @@ struct cache {
 #include <stdlib.h>
 #define xmalloc malloc
 
+static inline unsigned hash16(const char *str, unsigned len)
+{
+    uint32_t h;
+    memcpy(&h, str + 4, 4);
+    h *= 2654435761U;
+    h += len << 16;
+    return h >> 16;
+}
+
+#ifdef __SSE2__
+#include <emmintrin.h>
+#endif
+
 static int cache_decode(struct cache *c,
 			const char *str, int len,
 			unsigned fullhash,
@@ -29,16 +42,31 @@ static int cache_decode(struct cache *c,
 {
     int i;
     struct cache_ent *ent;
-    unsigned *hv = c->hv;
+    uint16_t *hv = c->hv;
     struct cache_ent **ev = c->ev;
-    unsigned hash;
-    memcpy(&hash, str, sizeof hash);
-    hash ^= len;
+    unsigned hash = hash16(str, len);
+#ifdef __SSE2__
+    __m128i xmm0 = _mm_set1_epi16(hash);
+#endif
     // Install sentinel
     hv[c->hc] = hash;
-    unsigned *hp = hv;
+    uint16_t *hp = hv;
     while (1) {
 	// Find hash
+#ifdef __SSE2__
+	unsigned mask;
+	do {
+	    __m128i xmm1 = _mm_loadu_si128((void *)(hp + 0));
+	    __m128i xmm2 = _mm_loadu_si128((void *)(hp + 8));
+	    hp += 16;
+	    xmm1 = _mm_cmpeq_epi16(xmm1, xmm0);
+	    xmm2 = _mm_cmpeq_epi16(xmm2, xmm0);
+	    xmm1 = _mm_packs_epi16(xmm1, xmm2);
+	    mask = _mm_movemask_epi8(xmm1);
+	} while (mask == 0);
+	hp -= 16;
+	hp += __builtin_ctz(mask);
+#else
 	while (1) {
 	    // Cf. Quicker sequential search in [Knuth, Vol.3, p.398]
 	    if (hp[0] == hash) break;
@@ -47,6 +75,7 @@ static int cache_decode(struct cache *c,
 	    if (hp[3] == hash) { hp += 3; break; }
 	    hp += 4;
 	}
+#endif
 	i = hp - hv;
 	// Found sentinel?
 	if (i == c->hc)
@@ -60,21 +89,19 @@ static int cache_decode(struct cache *c,
 	}
 	// Hit, move to front
 	c->hit++;
-	if (i) {
-	    memmove(hv + 1, hv, i * sizeof hv[0]);
-	    memmove(ev + 1, ev, i * sizeof ev[0]);
+	if (i > MOVSTEP) {
+	    hv += (unsigned) i - MOVSTEP;
+	    ev += (unsigned) i - MOVSTEP;
+	    memmove(hv + 1, hv, MOVSTEP * sizeof hv[0]);
+	    memmove(ev + 1, ev, MOVSTEP * sizeof ev[0]);
 	    hv[0] = hash;
 	    ev[0] = ent;
 	}
-	*pv = ent->v;
+	*pv = NULL;
 	return ent->n;
     }
     // decode
-#define SENTINELS 1
-    ent = xmalloc(sizeof(*ent) + (n + SENTINELS) * sizeof(unsigned));
-    unsigned *v = ent->v;
-    for (i = 0; i < n + SENTINELS; i++)
-    	v[i] = i;
+    ent = xmalloc(sizeof(*ent));
     ent->fullhash = fullhash;
     ent->len = len;
     ent->n = n;
@@ -95,7 +122,7 @@ static int cache_decode(struct cache *c,
     }
     hv[i] = hash;
     ev[i] = ent;
-    *pv = v;
+    *pv = NULL;
     return n;
 }
 
@@ -128,6 +155,8 @@ static unsigned int jhash(const char *str)
 
 static bool doline(const char *line, size_t len)
 {
+    if (len < 512) // approximates DECODE_CACHE_SIZE = 256
+	return 0;
     unsigned hash = jhash(line);
     char s[4];
     strncpy(s, line, 4);
