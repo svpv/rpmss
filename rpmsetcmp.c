@@ -396,15 +396,20 @@ static int cache_decode(struct cache *c,
 	hp += __builtin_ctz(mask);
 #elif defined(__ARM_NEON) || defined(__aarch64__)
 	uint64_t mask;
+	uint16x8_t xmm1 = vld1q_u16(hp + 0);
+	uint16x8_t xmm2 = vld1q_u16(hp + 8);
+	xmm1 = vceqq_u16(xmm1, xmm0);
+	xmm2 = vceqq_u16(xmm2, xmm0);
 	do {
-	    uint16x8_t xmm1 = vld1q_u16(hp + 0);
-	    uint16x8_t xmm2 = vld1q_u16(hp + 8);
-	    hp += 16;
-	    xmm1 = vceqq_u16(xmm1, xmm0);
-	    xmm2 = vceqq_u16(xmm2, xmm0);
 	    uint8x16_t maskv = vcombine_u8(vqmovn_u16(xmm1), vqmovn_u16(xmm2));
 	    uint8x8_t maskw = vshrn_n_u16(vreinterpretq_u16_u8(maskv), 4);
 	    mask = vget_lane_u64(vreinterpret_u64_u8(maskw), 0);
+	    // Moving the mask takes a while, start another iteration.
+	    xmm1 = vld1q_u16(hp + 16);
+	    xmm2 = vld1q_u16(hp + 24);
+	    hp += 16;
+	    xmm1 = vceqq_u16(xmm1, xmm0);
+	    xmm2 = vceqq_u16(xmm2, xmm0);
 	} while (mask == 0);
 	hp -= 16;
 	hp += __builtin_ctzll(mask) / 4;
